@@ -14,3 +14,4 @@ The browser tests do not test MediaPipe accuracy. That needs real footage (see .
 Edit the Chrome path (`/usr/bin/google-chrome`) in the browser tests if yours differs.
 
 - `browser_videotest.py`: Video test tab with "compare with the sound" on, using `fixture_scale_video.webm` (a recorded scale) and a fake MediaPipe.
+- `browser_record.py`: record a model arm from steady fake strokes, replay, save to file, reload, open the file, reject a bad file.

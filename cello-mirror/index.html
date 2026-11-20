@@ -87,6 +87,7 @@ td.num{font-variant-numeric:tabular-nums}
   <p class="note">Framing tip: put the camera in front of you and a little to the bow side, at chest height, far enough back that your head, both shoulders and both arms are in view. If the shoulder line looks wrong, try the Heavy body model.</p>
   <div class="bar">
     <button class="act" id="baseBtn" disabled>Set baseline</button>
+    <button class="act" id="recBtn" disabled title="Play steady strokes for 10 seconds; the movement becomes the model arm">Record model (10 s)</button>
     <span class="note">Sit in your best playing position, bow on the string, then press it. It records your own elbow height.</span>
   </div>
   <div class="bar">
@@ -182,11 +183,17 @@ td.num{font-variant-numeric:tabular-nums}
   <div class="bar">
     <button class="act go" id="mdPlay">Pause</button>
     <label>Speed <input type="range" id="mdSpeed" min="20" max="120" value="50"> <span id="mdSpeedV">50</span> strokes/min</label>
+    <label>Model
+      <select id="mdSrc"><option value="built">Built-in</option><option value="take">Recorded</option></select>
+    </label>
+    <button class="act" id="mdSave" disabled>Save recorded model</button>
+    <label class="act" style="cursor:pointer">Open model file <input type="file" id="mdOpen" accept=".json" hidden></label>
     <label>Bow used
       <select id="mdAmp"><option value="0.9">Whole bow</option><option value="0.6" selected>Middle two thirds</option><option value="0.35">Half</option><option value="0.2">Short</option></select>
     </label>
   </div>
   <div class="stage"><canvas id="mdCv" width="1280" height="720"></canvas></div>
+  <div class="note" id="mdInfo">No recorded model yet. On the Live mirror, start the camera and press "Record model (10 s)" while playing steady strokes (a teacher, ideally).</div>
   <div class="note">The elbow stays at one height and the wrist travels in a straight line. That is the picture to copy. Use "Show model arm" on the Live mirror to put it over your own shoulder.</div>
 </section>
 
@@ -269,9 +276,65 @@ export function solveArm(upper, fore, tx, ty) {
 
 // phase 0..1 is one down-bow plus one up-bow. The wrist path is a smooth to-and-fro line at a steady height.
 export function modelArm(m, phase) {
+  if (m.template) return takeArm(m, phase);
   const q = (1 - Math.cos(2 * Math.PI * phase)) / 2;       // 0 at the frog, 1 at the tip, smooth turnarounds
   const x = m.centre - m.amp / 2 + m.amp * q;
   return { ...solveArm(m.upper, m.fore, x, m.drop), tip: q, down: phase < 0.5 };
+}
+
+// ---- Record a teacher: the bow arm's real movement, stored as numbers and replayed as the model ----
+// All positions are in shoulder widths from the shoulder, x outward from the body, y down.
+export function takeSample(pose, arm, aspect) {
+  const m = elbowMetrics(pose, arm, aspect); if (!m || m.vis < 0.4) return null;
+  const [s, e, w] = arm === 'left' ? [11, 13, 15] : [12, 14, 16], o = arm === 'left' ? 1 : -1;
+  const rel = p => ({ x: o * (p.x - pose[s].x) * aspect / m.shoulderW, y: (p.y - pose[s].y) / m.shoulderW });
+  const E = rel(pose[e]), W = rel(pose[w]);
+  return { ex: E.x, ey: E.y, wx: W.x, wy: W.y, upper: m.upper, fore: m.fore };
+}
+const lerp = (a, b, k) => a + (b - a) * k;
+// samples: [{t (ms), ex, ey, wx, wy, upper, fore}]. Finds full strokes (frog to frog) and averages them into one template of N points.
+export function buildTake(samples, N = 64) {
+  if (!samples || samples.length < 30) return { ok: false, reason: 'Too few frames with the arm in view.' };
+  const sm = (k, i) => { let a = 0, c = 0; for (let j = Math.max(0, i - 2); j <= Math.min(samples.length - 1, i + 2); j++) { a += samples[j][k]; c++; } return a / c; };
+  const wx = samples.map((_, i) => sm('wx', i)), range = Math.max(...wx) - Math.min(...wx);
+  if (range < 0.15) return { ok: false, reason: 'The wrist hardly moved sideways, so no bow strokes were found.' };
+  const thr = range * 0.25, mins = []; let state = 0, iMin = 0, iMax = 0;
+  for (let i = 1; i < wx.length; i++) {
+    if (wx[i] < wx[iMin]) iMin = i; if (wx[i] > wx[iMax]) iMax = i;
+    if (state === 0) { if (wx[i] - wx[iMin] > thr) { state = 1; iMax = i; } }
+    else if (state === 1) { if (wx[iMax] - wx[i] > thr) { state = 2; iMin = i; } }
+    else if (wx[i] - wx[iMin] > thr) { mins.push(iMin); state = 1; iMax = i; }
+  }
+  if (mins.length < 3) return { ok: false, reason: 'Fewer than two full strokes were found. Play a few steady strokes.' };
+  const cycles = [];
+  for (let c = 0; c + 1 < mins.length; c++) {
+    const a = mins[c], b = mins[c + 1], t0 = samples[a].t, t1 = samples[b].t; if (t1 <= t0) continue;
+    const pts = []; let j = a;
+    for (let k = 0; k < N; k++) {
+      const t = t0 + (t1 - t0) * k / N; while (j + 1 < b && samples[j + 1].t <= t) j++;
+      const A = samples[j], B = samples[Math.min(j + 1, b)], f = B.t > A.t ? Math.min(1, Math.max(0, (t - A.t) / (B.t - A.t))) : 0;
+      pts.push({ ex: lerp(A.ex, B.ex, f), ey: lerp(A.ey, B.ey, f), wx: lerp(A.wx, B.wx, f), wy: lerp(A.wy, B.wy, f) });
+    }
+    cycles.push({ pts, ms: t1 - t0 });
+  }
+  const template = Array.from({ length: N }, (_, k) => { const o = { ex: 0, ey: 0, wx: 0, wy: 0 }; cycles.forEach(c => { for (const f in o) o[f] += c.pts[k][f] / cycles.length; }); return o; });
+  const spread = cycles.reduce((a, c) => a + Math.sqrt(c.pts.reduce((q, p, k) => q + (p.wx - template[k].wx) ** 2 + (p.wy - template[k].wy) ** 2, 0) / N), 0) / cycles.length;
+  const mean = k => samples.reduce((a, x) => a + x[k], 0) / samples.length, tx = template.map(p => p.wx);
+  const periodMs = cycles.reduce((a, c) => a + c.ms, 0) / cycles.length;
+  return { ok: true, template, upper: mean('upper'), fore: mean('fore'), cycles: cycles.length, strokesPerMin: Math.round(2 * 60000 / periodMs),
+    bowUsed: Math.max(...tx) - Math.min(...tx), elbowHeight: template.reduce((a, p) => a + p.ey, 0) / N, elbowMove: Math.max(...template.map(p => p.ey)) - Math.min(...template.map(p => p.ey)), spread };
+}
+export function takeArm(take, phase) {
+  const N = take.template.length, x = ((phase % 1) + 1) % 1 * N, i = Math.floor(x) % N, f = x - Math.floor(x), A = take.template[i], B = take.template[(i + 1) % N];
+  const wx = lerp(A.wx, B.wx, f), wy = lerp(A.wy, B.wy, f), lo = take.minX ?? Math.min(...take.template.map(p => p.wx)), hi = take.maxX ?? Math.max(...take.template.map(p => p.wx));
+  return { ...solveArm(take.upper, take.fore, wx, wy), tip: (wx - lo) / ((hi - lo) || 1), down: phase % 1 < 0.5 };
+}
+export function takeToJson(take, meta) { return JSON.stringify({ app: 'cello-mirror', kind: 'take', v: 1, ...meta, upper: +take.upper.toFixed(3), fore: +take.fore.toFixed(3), template: take.template.map(p => [p.ex, p.ey, p.wx, p.wy].map(v => +v.toFixed(3))) }); }
+export function takeFromJson(txt) {
+  let o; try { o = JSON.parse(txt); } catch (e) { throw new Error('This file is not a model file.'); }
+  if (!o || o.kind !== 'take' || !Array.isArray(o.template) || o.template.length < 8 || !(o.upper > 0.2) || !(o.fore > 0.2)) throw new Error('This file is not a model file.');
+  const template = o.template.map(a => { if (!Array.isArray(a) || a.length !== 4 || a.some(v => typeof v !== 'number' || !isFinite(v))) throw new Error('This file is not a model file.'); return { ex: a[0], ey: a[1], wx: a[2], wy: a[3] }; });
+  return { ...o, template };
 }
 
 // ---- Sessions: only numbers are stored, never video or audio ----
@@ -667,7 +730,25 @@ function main() {
   /* model arm */
   const GH = {};
   const MD = { play: true, t0: performance.now(), shown: 0, base: null };
-  function modelFor(lens) { return { ...MODEL_DEFAULT, ...(lens || {}), amp: +$('mdAmp').value }; }
+  function modelFor(lens) { if ($('mdSrc').value === 'take' && S.take) return S.take; return { ...MODEL_DEFAULT, ...(lens || {}), amp: +$('mdAmp').value }; }
+  function setTake(t, meta) {
+    S.take = { ...t, minX: Math.min(...t.template.map(p => p.wx)), maxX: Math.max(...t.template.map(p => p.wx)), meta: meta || {} };
+    $('mdSrc').value = 'take'; $('mdSave').disabled = false;
+    const m = S.take.meta;
+    $('mdInfo').textContent = `Recorded model: ${t.cycles ? t.cycles + ' strokes averaged, ' : ''}${t.strokesPerMin ? 'about ' + t.strokesPerMin + ' strokes/min, ' : ''}${t.bowUsed != null ? 'bow used ' + t.bowUsed.toFixed(2) + ' shoulder widths, ' : ''}${t.elbowHeight != null ? 'elbow ' + t.elbowHeight.toFixed(2) + ' shoulder widths below the shoulder' : ''}${m.arm ? ' (' + m.arm + ' arm)' : ''}.`;
+    try { localStorage.setItem('cm-take', takeToJson(S.take, S.take.meta)); } catch (e) {}
+  }
+  try { const t = takeFromJson(localStorage.getItem('cm-take') || ''); setTake(t, { arm: t.arm }); } catch (e) {}
+  $('mdSave').onclick = () => {
+    if (!S.take) return; const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([takeToJson(S.take, { arm: S.take.meta.arm || null, strokesPerMin: S.take.strokesPerMin, bowUsed: S.take.bowUsed, cycles: S.take.cycles, savedAt: new Date().toISOString() })], { type: 'application/json' }));
+    a.download = 'cello-model.json'; a.click();
+  };
+  $('mdOpen').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try { const t = takeFromJson(await f.text()); setTake(t, { arm: t.arm }); } catch (er) { $('mdInfo').textContent = er.message; }
+    e.target.value = '';
+  };
   function drawModelArm(ctx, m, phase, sx, sy, sw, outSign, color, alpha) {
     const a = modelArm(m, phase), P = q => [sx + outSign * q.x * sw, sy + q.y * sw];
     const [ex, ey] = P(a.elbow), [wx, wy] = P(a.wrist);
@@ -911,13 +992,13 @@ function main() {
     } catch (e) { msg.className = 'msg err'; msg.textContent = 'Camera not available: ' + e.message; $('badge').textContent = 'Camera off'; return; }
     vid.srcObject = stream; await vid.play(); await listCams();
     running = true; lastVT = -1; stats.t0 = performance.now();
-    $('camBtn').textContent = 'Stop camera'; $('camBtn').classList.remove('go'); $('baseBtn').disabled = false;
+    $('camBtn').textContent = 'Stop camera'; $('camBtn').classList.remove('go'); $('baseBtn').disabled = false; $('recBtn').disabled = false;
     loop();
   }
   function stopCam() {
     running = false;
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-    $('camBtn').textContent = 'Start camera'; $('camBtn').classList.add('go'); $('baseBtn').disabled = true;
+    $('camBtn').textContent = 'Start camera'; $('camBtn').classList.add('go'); $('baseBtn').disabled = true; $('recBtn').disabled = true;
     $('badge').textContent = 'Camera off'; $('badge').className = 'badge';
   }
   $('camBtn').onclick = () => running ? stopCam() : startCam();
@@ -939,6 +1020,11 @@ function main() {
     $('liveMsg').className = 'msg'; $('liveMsg').textContent = 'Hold your position for a moment...';
   };
 
+  $('recBtn').onclick = () => {
+    S.rec = { until: performance.now() + 10000, samples: [] };
+    $('liveMsg').className = 'msg'; $('liveMsg').textContent = 'Recording: play steady strokes with the bow arm in view...';
+  };
+
   function loop() {
     if (!running) return;
     if (vid.readyState >= 2 && vid.currentTime !== lastVT) { lastVT = vid.currentTime; try { liveFrame(); } catch (e) { $('liveMsg').className = 'msg err'; $('liveMsg').textContent = e.message; } }
@@ -956,6 +1042,7 @@ function main() {
     let st = { state: 'none', msg: 'Step back so your shoulders and bow arm are in view' }, em = null;
     if (pose) {
       em = elbowMetrics(pose, arm, W / H); bowSample(pose, arm, W / H, now);
+      if (S.rec) { const ts = takeSample(pose, arm, W / H); if (ts) S.rec.samples.push({ t: now, ...ts }); }
       if (em && em.vis > 0.4) {
         if (S.collect) {
           S.collect.vals.push(em.rel); (S.collect.lens ||= []).push([em.upper, em.fore]);
@@ -982,9 +1069,16 @@ function main() {
         const si = arm === 'left' ? 11 : 12, sw = d2(pose[11], pose[12], W / H) * W;
         const b = S.baseline, lens = b && b.arm === arm && b.upper > 0.3 && b.fore > 0.3 ? { upper: b.upper, fore: b.fore, drop: Math.max(0.5, b.rel + 0.25) } : null;
         GH.t = (GH.t || 0) + Math.min(100, now - (GH.last || now)) * (+$('ghostSpeed').value) / 120000; GH.last = now;
-        drawModelArm(ctx, { ...MODEL_DEFAULT, ...(lens || {}) }, GH.t % 1, pose[si].x * W, pose[si].y * H, sw, arm === 'left' ? 1 : -1, '#4ade80', 0.55);
+        drawModelArm(ctx, ($('mdSrc').value === 'take' && S.take) ? S.take : { ...MODEL_DEFAULT, ...(lens || {}) }, GH.t % 1, pose[si].x * W, pose[si].y * H, sw, arm === 'left' ? 1 : -1, '#4ade80', 0.55);
       }
     } else { stats.prev = now; }
+    if (S.rec) {
+      if (now > S.rec.until) {
+        const r = buildTake(S.rec.samples); S.rec = null;
+        if (r.ok) { setTake(r, { arm }); $('ghostOn').checked = true; $('liveMsg').className = 'msg'; $('liveMsg').textContent = `Model recorded from ${r.cycles} strokes. It now shows as the model arm. Save it on the Model player tab.`; }
+        else { $('liveMsg').className = 'msg err'; $('liveMsg').textContent = r.reason; }
+      } else $('liveMsg').textContent = 'Recording: ' + Math.ceil((S.rec.until - now) / 1000) + ' s left';
+    }
     const hands = hr.landmarks || [];
     hands.forEach(h => drawHand(ctx, h, W, H, '#6aa9e9'));
     const neck = pickNeckHand(hands, pose, arm, W / H);

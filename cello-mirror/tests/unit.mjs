@@ -192,3 +192,28 @@ console.log('STRING POSITION TESTS PASSED');
   assert.equal(m.soundSightFit([{ freq: null, x: 1, y: 1 }]).enough, false);
   console.log('sound against sight OK');
 }
+// record a teacher
+{
+  let r = 11; const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647 - 0.5;
+  const mk = (sec, periodMs, amp, noise) => Array.from({ length: Math.floor(sec * 30) }, (_, i) => { const t = i * 1000 / 30, q = (1 - Math.cos(2 * Math.PI * t / periodMs)) / 2;
+    const wx = 0.35 + amp * q + noise * rnd(), wy = 0.9 + noise * rnd(); const e = m.solveArm(0.75, 0.7, wx, wy).elbow; return { t, ex: e.x, ey: e.y, wx, wy, upper: 0.75, fore: 0.7 }; });
+  const t = m.buildTake(mk(12, 2000, 0.5, 0.01));
+  assert(t.ok && t.cycles >= 4 && t.cycles <= 6, JSON.stringify(t.cycles));
+  assert(Math.abs(t.strokesPerMin - 60) <= 3 && Math.abs(t.bowUsed - 0.5) < 0.05 && t.spread < 0.03, JSON.stringify({ s: t.strokesPerMin, b: t.bowUsed, sp: t.spread }));
+  const lo = m.takeArm(t, 0), mid = m.takeArm(t, 0.5), end = m.takeArm({ ...t }, 0.999);
+  assert(mid.wrist.x - lo.wrist.x > 0.4 && mid.down === false && lo.down === true && Math.abs(end.wrist.x - lo.wrist.x) < 0.05);
+  assert(mid.elbow.y > 0.3 && Math.abs(mid.tip - 1) < 0.1, JSON.stringify(mid));
+  assert.equal(m.modelArm(t, 0.25).down, true);                                   // modelArm accepts a take
+  assert(!m.buildTake(mk(12, 2000, 0.02, 0.005)).ok && /hardly moved/.test(m.buildTake(mk(12, 2000, 0.02, 0.005)).reason));
+  assert(!m.buildTake(mk(3, 2000, 0.5, 0.01)).ok);                                // under two strokes
+  assert(!m.buildTake(mk(0.5, 2000, 0.5, 0)).ok);
+  const j = m.takeToJson(t, { arm: 'right' }), back = m.takeFromJson(j);
+  assert.equal(back.template.length, 64); assert(Math.abs(back.template[10].wx - t.template[10].wx) < 0.001); assert.equal(back.arm, 'right');
+  assert.throws(() => m.takeFromJson('nope'), /not a model file/); assert.throws(() => m.takeFromJson('{"kind":"take","template":[[1,2]],"upper":1,"fore":1}'), /not a model file/);
+  assert.throws(() => m.takeFromJson(JSON.stringify({ kind: 'take', upper: 1, fore: 1, template: Array(10).fill([0, 0, 'x', 0]) })), /not a model file/);
+  // takeSample: a right arm seen from the front, outward = towards image-left
+  const pose = []; pose[11] = { x: 0.6, y: 0.4, visibility: 1 }; pose[12] = { x: 0.4, y: 0.4, visibility: 1 }; pose[14] = { x: 0.3, y: 0.55, visibility: 1 }; pose[16] = { x: 0.2, y: 0.55, visibility: 1 };
+  const s = m.takeSample(pose, 'right', 1); assert(Math.abs(s.wx - 1.0) < 1e-6 && Math.abs(s.ex - 0.5) < 1e-6 && s.ey > 0.5, JSON.stringify(s));
+  assert.equal(m.takeSample({}, 'right', 1), null);
+  console.log('record a teacher OK');
+}
