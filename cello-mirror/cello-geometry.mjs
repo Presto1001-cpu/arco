@@ -15,6 +15,8 @@ export const SPEC = {
   bridgeFoot:   { v: 90,  seen: [88, 92], status: 'verified' },
   pegbox:       { v: 135, seen: [135, 135], status: 'single source' },
   ribHeight:    { v: 118, seen: [115, 126], status: 'verified', note: 'about 116 at neck, 122 at bottom' },
+  afterLength:  { v: 115, seen: [115, 115], status: 'estimate', note: 'bridge to tailpiece, about one sixth of the string length' },
+  tailpiece:    { v: 175, seen: [175, 175], status: 'estimate', note: 'length of the tailpiece body' },
   bowLength:    { v: 720, seen: [711, 730], status: 'verified', note: 'full-size cello bow, tip to end of button' },
 };
 export const stringLength = s => s.stringLength.v;
@@ -23,8 +25,9 @@ export const neckLength = s => s.stringLength.v - s.stop.v;           // nut to 
 // Where along the body each width occurs and the shape between them is NOT verified: the stations below are my estimate. Widths are exact by construction.
 export function stations(s) {
   const L = s.bodyLength.v, U = s.upperBout.v / 2, C = s.middleBout.v / 2, B = s.lowerBout.v / 2, k = L / 756;
-  return [[0, 0], [6, 0.222 * U], [20, 0.41 * U], [45, 0.615 * U], [85, 0.825 * U], [130, 0.947 * U], [175, 0.99 * U], [210, U], [245, 0.955 * U], [285, 0.83 * U], [325, 0.71 * U],
-    [352, C], [385, 1.03 * C], [430, 1.17 * C], [485, 0.78 * B], [545, 0.915 * B], [600, B], [650, 0.94 * B], [695, 0.79 * B], [728, 0.55 * B], [744, 0.35 * B], [752, 0.18 * B], [756, 0]]
+  // Landmark positions (fractions of body length) were checked against a front-view drawing of a cello: upper bout widest ~0.19, upper corners ~0.32, waist ~0.415, lower corners ~0.575, lower bout widest ~0.78. The curves between them are my own.
+  return [[0, 0], [6, 0.222 * U], [18, 0.42 * U], [38, 0.62 * U], [65, 0.80 * U], [100, 0.94 * U], [144, U], [185, 0.975 * U], [225, 0.91 * U], [255, 0.80 * U], [285, 0.72 * U], [314, C],
+    [350, 1.03 * C], [390, 1.10 * C], [410, 1.22 * C], [435, 0.78 * B], [480, 0.88 * B], [530, 0.95 * B], [590, B], [640, 0.965 * B], [690, 0.84 * B], [725, 0.62 * B], [745, 0.35 * B], [752, 0.18 * B], [756, 0]]
     .map(([y, w]) => [y * k, w]);
 }
 // Monotone cubic (no overshoot), so the stated widths are the true maxima.
