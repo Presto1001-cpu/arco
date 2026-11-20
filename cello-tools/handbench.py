@@ -137,7 +137,7 @@ HAND_LINKS = [(0,1),(1,2),(2,3),(3,4),(0,5),(5,6),(6,7),(7,8),(5,9),(9,10),(10,1
               (9,13),(13,14),(14,15),(15,16),(13,17),(17,18),(18,19),(19,20),(0,17)]
 
 
-def analyse(path, backend, fps, annotate_to=None, max_seconds=None):
+def analyse(path, backend, fps, annotate_to=None, max_seconds=None, save_landmarks=False, start_seconds=0.0):
     import cv2
     cap = cv2.VideoCapture(path)
     if not cap.isOpened():
@@ -148,7 +148,9 @@ def analyse(path, backend, fps, annotate_to=None, max_seconds=None):
     writer = None
     if annotate_to:
         writer = cv2.VideoWriter(annotate_to, cv2.VideoWriter_fourcc(*"mp4v"), fps, (W, H))
-    frames, prev_pix, prev_shape, nxt, i, k = [], None, None, 0.0, 0, 0
+    frames, prev_pix, prev_shape, prev_wrist, nxt, i, k = [], None, None, None, 0.0, 0, 0
+    if start_seconds:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(start_seconds * src_fps)); i = int(start_seconds * src_fps); nxt = float(i)
     while True:
         ok, bgr = cap.read()
         if not ok:
@@ -162,17 +164,28 @@ def analyse(path, backend, fps, annotate_to=None, max_seconds=None):
             motion = motion_energy(prev_pix, pix) if prev_pix is not None else None
             prev_pix = pix
             hands = backend.detect(bgr)
-            best = max(hands, key=lambda h: h[1]) if hands else None
+            # Follow the SAME hand from frame to frame (nearest wrist), so that two hands in view
+            # swapping places in the list is not mistaken for a glitch.
+            best, cont = None, False
+            if hands and prev_wrist is not None:
+                near = min(hands, key=lambda h: math.hypot(h[0][0][0] - prev_wrist[0], h[0][0][1] - prev_wrist[1]))
+                if math.hypot(near[0][0][0] - prev_wrist[0], near[0][0][1] - prev_wrist[1]) < 0.12:
+                    best, cont = near, True
+            if hands and best is None:
+                best = max(hands, key=lambda h: h[1])
             jump = None
             if best:
                 shape = hand_shape(best[0], W / H)
-                jump = is_jump(prev_shape, shape) if prev_shape else None
-                prev_shape = shape
+                jump = is_jump(prev_shape, shape) if (prev_shape and cont) else None
+                prev_shape, prev_wrist = shape, (best[0][0][0], best[0][0][1])
             else:
-                prev_shape = None
-            frames.append(dict(i=k, t=round(t, 3), motion=None if motion is None else round(motion, 3),
-                               det=best is not None, conf=round(best[1], 3) if best else 0.0,
-                               jump=jump, n_hands=len(hands)))
+                prev_shape = prev_wrist = None
+            rec = dict(i=k, t=round(t, 3), motion=None if motion is None else round(motion, 3),
+                       det=best is not None, conf=round(best[1], 3) if best else 0.0,
+                       jump=jump, n_hands=len(hands))
+            if save_landmarks:
+                rec["hands"] = [np.round(h[0], 4).tolist() for h in hands]
+            frames.append(rec)
             if writer:
                 for lm, _ in hands:
                     pts = [(int(x * W), int(y * H)) for x, y in lm]
@@ -209,13 +222,16 @@ def main():
     ap.add_argument("--complexity", type=int, choices=[0, 1], default=1, help="mediapipe model: 0 lite, 1 full")
     ap.add_argument("--out", default="handbench_out", help="folder for CSV/JSON results")
     ap.add_argument("--annotate", action="store_true", help="also write an annotated .mp4 per clip")
-    ap.add_argument("--max-seconds", type=float, default=None)
+    ap.add_argument("--max-seconds", type=float, default=None, help="stop at this time in the clip")
+    ap.add_argument("--start-seconds", type=float, default=0.0, help="start at this time in the clip")
+    ap.add_argument("--save-landmarks", action="store_true", help="store all 21 points per hand in the JSON")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     backend = BACKENDS[a.backend](mode=a.mode, complexity=a.complexity)
     for v in a.videos:
         stem = os.path.splitext(os.path.basename(v))[0] + f"_{a.backend}_{a.mode}"
-        r = analyse(v, backend, a.fps, os.path.join(a.out, stem + "_annotated.mp4") if a.annotate else None, a.max_seconds)
+        r = analyse(v, backend, a.fps, os.path.join(a.out, stem + "_annotated.mp4") if a.annotate else None, a.max_seconds,
+                    a.save_landmarks, a.start_seconds)
         report(r)
         with open(os.path.join(a.out, stem + ".json"), "w") as f:
             json.dump(r, f)
