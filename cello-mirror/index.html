@@ -92,7 +92,9 @@ progress{width:100%;height:10px}
       <button class="act go" id="micBtn">Start microphone</button>
       <label>In tune within <select id="micTol"><option value="10">10 cents</option><option value="15" selected>15 cents</option><option value="25">25 cents</option></select></label>
       <label>A4 = <select id="a4Sel"><option>440</option><option>441</option><option>442</option><option>443</option></select> Hz</label>
+      <label>String <select id="strSel"><option value="auto">Auto (show all that fit)</option><option>C</option><option>G</option><option>D</option><option>A</option></select></label>
     </div>
+    <div class="stat" style="margin-top:10px"><b id="mPos" style="font-size:16px">-</b><span>Where on the neck: semitones up the string, and distance from the nut as a share of the string</span></div>
     <div class="stats">
       <div class="stat"><b id="mNote">-</b><span>Note heard</span></div>
       <div class="stat"><b id="mCents">-</b><span>Cents off</span></div>
@@ -251,6 +253,23 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
 export function freqToNote(f, a4 = 440) {
   const m = 69 + 12 * Math.log2(f / a4), r = Math.round(m);
   return { name: NOTE_NAMES[((r % 12) + 12) % 12] + (Math.floor(r / 12) - 1), midi: r, cents: (m - r) * 100 };
+}
+
+// Where on the neck? On a string with open frequency f0, a finger that makes pitch f shortens the
+// vibrating length to f0/f, so the finger sits (1 - f0/f) of the string length from the nut.
+// Same principle as freq_position.py in the String Performance Dataset code (SPD, Tsinghua).
+export const CELLO_STRINGS = [['C', 65.406], ['G', 97.999], ['D', 146.832], ['A', 220.0]];
+export function stringPositions(freq, a4 = 440, only = 'auto', maxSemitones = 24) {
+  const out = [];
+  for (const [name, f0base] of CELLO_STRINGS) {
+    if (only !== 'auto' && only !== name) continue;
+    const f0 = f0base * a4 / 440;
+    const semis = 12 * Math.log2(freq / f0);
+    if (semis < -0.5 || semis > maxSemitones) continue;
+    const s = Math.max(0, semis);
+    out.push({ string: name, semitones: s, fromNut: 1 - 1 / Math.pow(2, s / 12), open: s < 0.4 });
+  }
+  return out.sort((x, y) => x.semitones - y.semitones);
 }
 
 /* ---------- app ---------- */
@@ -463,12 +482,12 @@ function main() {
     if (!mic) return;
     clearInterval(mic.timer); mic.s.getTracks().forEach(t => t.stop()); mic.ac.close(); mic = null;
     $('micBtn').textContent = 'Start microphone'; $('micBtn').classList.add('go');
-    $('mNote').textContent = '-'; $('mCents').textContent = '-'; $('needle').style.left = '50%';
+    $('mNote').textContent = '-'; $('mCents').textContent = '-'; $('mPos').textContent = '-'; $('needle').style.left = '50%';
   }
   $('micBtn').onclick = () => mic ? stopMic() : startMic();
 
   function onPitch(r) {
-    if (!r.freq || r.prob < 0.85) { pit.streak = 0; $('mNote').textContent = '-'; $('mCents').textContent = '-'; return; }
+    if (!r.freq || r.prob < 0.85) { pit.streak = 0; $('mNote').textContent = '-'; $('mCents').textContent = '-'; $('mPos').textContent = '-'; return; }
     const n = freqToNote(r.freq, +$('a4Sel').value);
     pit.streak = n.midi === pit.lastMidi ? pit.streak + 1 : 1; pit.lastMidi = n.midi;
     if (pit.streak < 2) return; // wait for two matching readings, so note changes do not flicker
@@ -477,6 +496,10 @@ function main() {
     $('mCents').textContent = (n.cents >= 0 ? '+' : '') + n.cents.toFixed(0);
     $('mTune').textContent = Math.round(100 * pit.inTune / pit.voiced) + '%';
     $('needle').style.left = (50 + Math.max(-50, Math.min(50, n.cents))) + '%';
+    const pos = stringPositions(r.freq, +$('a4Sel').value, $('strSel').value);
+    $('mPos').textContent = pos.length
+      ? pos.map(p => p.open ? `${p.string}: open` : `${p.string}: +${p.semitones.toFixed(0)} (${(100 * p.fromNut).toFixed(0)}%)`).join('   ')
+      : 'Outside this string range';
   }
 
   /* ---------- video test ---------- */
