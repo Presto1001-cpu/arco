@@ -54,6 +54,9 @@ progress{width:100%;height:10px}
     <label>Bow arm
       <select id="armSel"><option value="right">Right</option><option value="left">Left</option></select>
     </label>
+    <label>Body model
+      <select id="poseSel"><option value="full" selected>Full</option><option value="heavy">Heavy (slowest, most accurate)</option><option value="lite">Lite (fastest)</option></select>
+    </label>
     <label>Cello size
       <select id="sizeSel"><option>4/4</option><option>7/8</option><option>3/4</option><option>1/2</option><option>1/4</option><option>1/8</option></select>
     </label>
@@ -63,6 +66,7 @@ progress{width:100%;height:10px}
     <div class="badge" id="badge">Camera off</div>
   </div>
   <video id="liveVid" class="hid" playsinline muted></video>
+  <p class="note">Framing tip: put the camera in front of you and a little to the bow side, at chest height, far enough back that your head, both shoulders and both arms are in view. If the shoulder line looks wrong, try the Heavy body model.</p>
   <div class="bar">
     <button class="act" id="baseBtn" disabled>Set baseline</button>
     <span class="note">Sit in your best playing position, bow on the string, then press it. It records your own elbow height.</span>
@@ -199,7 +203,11 @@ export function verdict(pct) { return pct >= 90 ? 'good' : pct >= 70 ? 'shaky' :
 const VER = '0.10.14';
 const CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VER}`;
 const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+const POSE_MODELS = {
+  lite: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+  full: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+  heavy: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task'
+};
 const COL = { green: '#5bbf8a', amber: '#f0b429', red: '#e5605a', none: '#6aa9e9' };
 
 function main() {
@@ -222,8 +230,9 @@ function main() {
             } catch (e) { if (delegate === 'CPU') throw e; }
           }
         };
+        S.vision = vision; S.make = make;
         S.hands = await make(vision.HandLandmarker, HAND_MODEL, { numHands: 2 });
-        S.pose = await make(vision.PoseLandmarker, POSE_MODEL, { numPoses: 1 });
+        S.pose = await make(vision.PoseLandmarker, POSE_MODELS[$('poseSel').value], { numPoses: 1 });
       })();
       S.loading.catch(() => { S.loading = null; });
     }
@@ -243,10 +252,10 @@ function main() {
     for (const p of h) { ctx.beginPath(); ctx.arc(p.x * W, p.y * H, 3, 0, 7); ctx.fill(); }
   }
   function drawPose(ctx, p, W, H, color, arm) {
-    const links = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24]];
+    const links = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16]];
     ctx.lineWidth = 3;
     for (const [a, b] of links) {
-      if (!p[a] || !p[b]) continue;
+      if (!p[a] || !p[b] || (p[a].visibility ?? 1) < 0.5 || (p[b].visibility ?? 1) < 0.5) continue;
       const bow = arm === 'left' ? (a === 11 && b === 13) || (a === 13 && b === 15) : (a === 12 && b === 14) || (a === 14 && b === 16);
       ctx.strokeStyle = bow ? color : 'rgba(230,236,242,.45)'; ctx.lineWidth = bow ? 5 : 2;
       ctx.beginPath(); ctx.moveTo(p[a].x * W, p[a].y * H); ctx.lineTo(p[b].x * W, p[b].y * H); ctx.stroke();
@@ -302,6 +311,17 @@ function main() {
     $('badge').textContent = 'Camera off'; $('badge').className = 'badge';
   }
   $('camBtn').onclick = () => running ? stopCam() : startCam();
+  $('poseSel').onchange = async () => {
+    if (!S.make) return; // models not loaded yet: the choice is used on first load
+    const k = $('poseSel').value, was = running, msg = $('liveMsg');
+    running = false; msg.className = 'msg'; msg.textContent = 'Switching body model...';
+    try {
+      const np = await S.make(S.vision.PoseLandmarker, POSE_MODELS[k], { numPoses: 1 });
+      if (S.pose) S.pose.close();
+      S.pose = np; msg.textContent = 'Body model: ' + k;
+    } catch (e) { loadErr(msg, e); }
+    if (was) { running = true; loop(); }
+  };
   $('camSel').onchange = () => { if (running) { stopCam(); startCam(); } };
 
   $('baseBtn').onclick = () => {
