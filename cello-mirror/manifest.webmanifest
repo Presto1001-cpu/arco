@@ -1,0 +1,11 @@
+{
+  "name": "Cello Mirror",
+  "short_name": "Cello Mirror",
+  "description": "A mirror that watches a cellist and coaches like a teacher between lessons.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14181d",
+  "theme_color": "#14181d",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

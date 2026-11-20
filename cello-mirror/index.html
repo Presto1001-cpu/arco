@@ -3,7 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cello Mirror - prototype v0.2</title>
+<title>Cello Mirror - prototype v0.3</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#14181d">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
 <style>
 :root{--bg:#14181d;--panel:#1d232b;--line:#2c3540;--text:#e8edf2;--dim:#9aa6b2;--green:#5bbf8a;--amber:#f0b429;--red:#e5605a;--blue:#6aa9e9}
 *{box-sizing:border-box}
@@ -38,6 +42,11 @@ th{color:var(--dim);font-weight:500;font-size:13px}
 progress{width:100%;height:10px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:12px}
 .note{font-size:13px;color:var(--dim)}
+.exnotes{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.exnotes span{padding:4px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-weight:600}
+.exnotes span.now{border-color:var(--blue);color:var(--blue)}.exnotes span.ok{border-color:var(--green);color:var(--green)}.exnotes span.off{border-color:var(--amber);color:var(--amber)}.exnotes span.skip{opacity:.5}
+.banner{background:var(--panel);border:1px solid var(--blue);border-radius:10px;padding:8px 12px;margin:10px 0}
+td.num{font-variant-numeric:tabular-nums}
 @media(max-width:600px){#history th:nth-child(3),#history td:nth-child(3){display:none}#history td:nth-child(6){font-size:12px;min-width:150px}#history th,#history td{padding:6px 5px}}
 #meter{position:relative;height:14px;margin-top:12px;border-radius:7px;background:linear-gradient(90deg,#3a2f20 0,#1f3a2c 40%,#1f3a2c 60%,#3a2f20 100%);border:1px solid var(--line)}
 #meter::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;background:var(--dim)}
@@ -46,12 +55,13 @@ progress{width:100%;height:10px}
 </head>
 <body>
 <header>
-  <h1>Cello Mirror <small>prototype v0.2</small></h1>
-  <nav><button data-tab="live" class="on">Live mirror</button><button data-tab="phone">Phone camera</button><button data-tab="history">History</button><button data-tab="model">Model player</button><button data-tab="test">Video test</button></nav>
+  <h1>Cello Mirror <small>prototype v0.3</small></h1>
+  <nav><button data-tab="live" class="on">Live mirror</button><button data-tab="board">Fingerboard</button><button data-tab="teacher">Teacher</button><button data-tab="phone">Phone camera</button><button data-tab="history">History</button><button data-tab="model">Model player</button><button data-tab="test">Video test</button></nav>
 </header>
 <main>
 
 <section id="live">
+  <div class="banner" id="tBanner" hidden></div>
   <div class="bar">
     <button class="act go" id="camBtn">Start camera</button>
     <select id="camSel" title="Camera"></select>
@@ -89,6 +99,8 @@ progress{width:100%;height:10px}
     <div class="stat"><b id="stAngle">-</b><span>Elbow angle</span></div>
     <div class="stat"><b id="stHands">0</b><span>Hands seen</span></div>
     <div class="stat"><b id="stCurve">-</b><span>Left-hand finger curve (experimental, 1 = straight)</span></div>
+    <div class="stat"><b id="stWobble">-</b><span>Bow path wobble (experimental, shoulder widths, lower is straighter)</span></div>
+    <div class="stat"><b id="stTilt">-</b><span>Bow path tilt (experimental, degrees from level)</span></div>
     <div class="stat"><b id="stFps">-</b><span>Frames / second</span></div>
   </div>
   <div class="bar"><button class="act" id="saveSess">Finish and save session</button><span class="note">Saves numbers only. The counters then start again.</span></div>
@@ -108,9 +120,32 @@ progress{width:100%;height:10px}
       <div class="stat"><b id="mTune">-</b><span>In tune (whole session)</span></div>
     </div>
     <div id="meter"><i id="needle"></i></div>
+    <div class="panel"><b>Exercise</b>
+      <div class="bar"><select id="exSel"></select><button class="act go" id="exStart">Start exercise</button><button class="act" id="exSkip">Skip note</button></div>
+      <div class="exnotes" id="exNotes"></div><div class="note" id="exMsg">Pick an exercise and play the notes in order. The microphone follows you.</div></div>
     <p class="note">Works on its own, without the camera. Measured against standard tuning, not against the note you meant to play. Use a quiet room and one instrument at a time.</p>
   </div>
   <p class="note">Only numbers are kept, never video. Nothing leaves this page.</p>
+</section>
+
+<section id="board" hidden>
+  <div class="bar"><label>Cello size <select id="fbSize"></select></label></div>
+  <p class="note">Computed from the vibrating string length of the chosen size. Position numbers follow the tonal system (1st position has the first finger a whole tone above the nut); other schools number differently, so check with the teacher. The 7/8 string length is an estimate.</p>
+  <table><thead><tr><th>Position</th><th>Semitones</th><th>Region</th><th>From nut (cm)</th><th>Share of string</th><th>Semitone (mm)</th><th>Closed hand 1-4 (mm)</th><th>Extended hand 1-4 (mm)</th></tr></thead><tbody id="fbRows"></tbody></table>
+  <div class="panel"><b>Double stops</b><p class="note">Where the finger on the upper string sits compared with the finger on the lower string, in semitones along the fingerboard. Strings are a fifth apart. Minus means toward the nut.</p>
+  <table><thead><tr><th>Interval</th><th>Semitones</th><th>Upper finger vs lower finger</th></tr></thead><tbody id="dsRows"></tbody></table></div>
+</section>
+
+<section id="teacher" hidden>
+  <div class="panel"><b>Weekly settings for a student</b>
+    <p class="note">Choose the settings, copy the link and send it. When the student opens the link, the page starts with these settings. Nothing is stored on a server.</p>
+    <div class="bar"><label>Level <select id="tLevel"><option value="beginner">Beginner</option><option value="advanced">Advanced</option></select></label>
+      <label>Focus <select id="tFocus"><option value="both">Bow arm and intonation</option><option value="bow">Bow arm</option><option value="tune">Intonation</option></select></label>
+      <label>Cello size <select id="tSize"></select></label>
+      <label>Bow arm <select id="tArm"><option value="right">Right</option><option value="left">Left</option></select></label>
+      <label>Exercise <select id="tEx"></select></label></div>
+    <div class="bar"><button class="act go" id="tMake">Make link</button><button class="act" id="tCopy" disabled>Copy link</button></div>
+    <textarea id="tLink" rows="3" readonly style="width:100%" placeholder="The link appears here."></textarea></div>
 </section>
 
 <section id="phone" hidden>
@@ -316,6 +351,113 @@ export async function unpackSignal(text) {
     if (o && (o.t === 'offer' || o.t === 'answer') && typeof o.s === 'string' && o.s.indexOf('v=0') === 0) return { type: o.t, sdp: o.s };
   } catch (e) {}
   throw new Error('That is not a pairing code. Copy the whole code, with nothing added.');
+}
+
+// ---- Fingerboard geometry (computed from string length; sizes from maker data, 7/8 is an estimate) ----
+export const STRING_MM = { '4/4': 690, '7/8': 670, '3/4': 650, '1/2': 600, '1/4': 545, '1/8': 480 };
+export const stringMm = size => STRING_MM[size] || 690;
+export const stopMm = (L, n) => L * (1 - Math.pow(2, -n / 12));       // distance from the nut for n semitones above the open string
+export const gapMm = (L, n) => stopMm(L, n + 1) - stopMm(L, n);       // width of the next semitone at that spot
+// Tonal position numbering (whole numbers follow the major scale of the open string). Other schools number differently.
+export const POSITIONS = [[1, 'half'], [2, '1st'], [3, '1½'], [4, '2nd'], [5, '3rd'], [6, '3½'], [7, '4th'], [8, '4½'], [9, '5th'], [10, '5½'], [11, '6th'], [12, '7th']];
+export function regionOf(semis) { return semis <= 10 ? 'neck' : semis <= 15 ? 'intermediate' : 'thumb'; }
+export function fingerboardTable(size) {
+  const L = stringMm(size);
+  return POSITIONS.map(([n, name]) => ({
+    name, semis: n, region: n <= 7 ? 'neck' : 'intermediate', fromNutCm: stopMm(L, n) / 10, share: 1 - Math.pow(2, -n / 12),
+    gapMm: gapMm(L, n), closedSpanMm: stopMm(L, n + 3) - stopMm(L, n), extendedSpanMm: stopMm(L, n + 4) - stopMm(L, n),
+  }));
+}
+// Double stops: where the finger on the upper string sits relative to the finger on the lower string, in semitones along the fingerboard
+// (negative = toward the nut). The strings are a fifth (7 semitones) apart.
+export const DOUBLE_STOPS = [['minor third', 3], ['major third', 4], ['fourth', 5], ['fifth', 7], ['minor sixth', 8], ['major sixth', 9], ['octave', 12], ['minor tenth', 15], ['major tenth', 16]];
+export const doubleStopOffset = interval => interval - 7;
+
+// ---- Exercises and note tracking ----
+const NOTE_BASE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+export function noteToMidi(name) {
+  const m = /^([A-G])([#b]?)(-?\d)$/.exec(name); if (!m) throw new Error('bad note ' + name);
+  return 12 * (+m[3] + 1) + NOTE_BASE[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
+}
+export const EXERCISES = [
+  { id: 'open', name: 'Open strings, C G D A', notes: ['C2', 'G2', 'D3', 'A3'] },
+  { id: 'c1', name: 'C major, one octave from the C string', notes: ['C2', 'D2', 'E2', 'F2', 'G2', 'A2', 'B2', 'C3'] },
+  { id: 'g1', name: 'G major, one octave from the G string', notes: ['G2', 'A2', 'B2', 'C3', 'D3', 'E3', 'F#3', 'G3'] },
+  { id: 'd1', name: 'D major, one octave from the D string', notes: ['D3', 'E3', 'F#3', 'G3', 'A3', 'B3', 'C#4', 'D4'] },
+  { id: 'a1', name: 'A major, one octave from the A string', notes: ['A3', 'B3', 'C#4', 'D4', 'E4', 'F#4', 'G#4', 'A4'] },
+  { id: 'd2', name: 'D major, two octaves across the strings', notes: ['D3', 'E3', 'F#3', 'G3', 'A3', 'B3', 'C#4', 'D4', 'E4', 'F#4', 'G4', 'A4', 'B4', 'C#5', 'D5'] },
+];
+// Follows a player through a list of notes. Feed it one reading per call ({midi, cents} from freqToNote, or null for silence).
+// A note counts when it is heard `hold` times in a row. It is "in tune" when its average error is within tolCents.
+export function makeTracker(names, opts = {}) {
+  const tol = opts.tolCents ?? 25, hold = opts.hold ?? 3, targets = names.map(noteToMidi);
+  const st = { index: 0, run: [], wrongRun: 0, wrongMidi: null, lastDone: null, results: [], wrong: 0 };
+  return {
+    state: st, targets,
+    feed(r) {
+      if (st.index >= targets.length) return { done: true };
+      if (!r) { st.run = []; st.wrongRun = 0; return { listening: true }; }
+      const t = targets[st.index];
+      if (r.midi === t) {
+        st.wrongRun = 0; st.run.push(r.cents);
+        if (st.run.length >= hold) {
+          const avg = st.run.reduce((a, b) => a + b, 0) / st.run.length;
+          st.results.push({ name: names[st.index], midi: t, cents: avg, ok: Math.abs(avg) <= tol });
+          st.lastDone = t; st.index++; st.run = [];
+          return { advanced: true, done: st.index >= targets.length };
+        }
+        return { hearing: true };
+      }
+      st.run = [];
+      if (r.midi === st.lastDone) return { sustain: true };           // the previous note still ringing
+      if (r.midi === st.wrongMidi) st.wrongRun++; else { st.wrongMidi = r.midi; st.wrongRun = 1; }
+      if (st.wrongRun === hold) { st.wrong++; return { wrongNote: r.midi }; }
+      return { off: true };
+    },
+    skip() { if (st.index < targets.length) { st.results.push({ name: names[st.index], midi: targets[st.index], cents: null, ok: false, skipped: true }); st.index++; st.run = []; } },
+    summary() {
+      const done = st.results.filter(x => !x.skipped), ok = done.filter(x => x.ok).length;
+      return { total: targets.length, played: done.length, inTune: ok, wrong: st.wrong, skipped: st.results.length - done.length,
+               avgAbsCents: done.length ? done.reduce((a, b) => a + Math.abs(b.cents), 0) / done.length : null, finished: st.index >= targets.length };
+    },
+  };
+}
+
+// ---- Teacher link: settings carried in the page address, no server ----
+const LV = ['beginner', 'advanced'], FC = ['both', 'bow', 'tune'], ARM = ['right', 'left'];
+export function makeLink(base, o) {
+  const q = new URLSearchParams();
+  for (const k of ['level', 'focus', 'size', 'arm', 'ex']) if (o[k]) q.set(k, o[k]);
+  return base + '#' + q.toString();
+}
+export function parseLink(hash) {
+  const q = new URLSearchParams(String(hash || '').replace(/^#/, '')), out = {};
+  if (LV.includes(q.get('level'))) out.level = q.get('level');
+  if (FC.includes(q.get('focus'))) out.focus = q.get('focus');
+  if (q.get('size') in STRING_MM) out.size = q.get('size');
+  if (ARM.includes(q.get('arm'))) out.arm = q.get('arm');
+  if (EXERCISES.some(e => e.id === q.get('ex'))) out.ex = q.get('ex');
+  return out;
+}
+
+// ---- Bow path: how straight and steady the wrist travels (points in shoulder widths, relative to the bow shoulder) ----
+export function bowPathStats(pts) {
+  if (!pts || pts.length < 8) return null;
+  const n = pts.length, mx = pts.reduce((a, p) => a + p.x, 0) / n, my = pts.reduce((a, p) => a + p.y, 0) / n;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (const p of pts) { sxx += (p.x - mx) ** 2; syy += (p.y - my) ** 2; sxy += (p.x - mx) * (p.y - my); }
+  const th = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(th), uy = Math.sin(th);   // main direction of travel
+  let sq = 0, lo = Infinity, hi = -Infinity; const along = [];
+  for (const p of pts) { const a = (p.x - mx) * ux + (p.y - my) * uy, d = -(p.x - mx) * uy + (p.y - my) * ux; sq += d * d; along.push(a); lo = Math.min(lo, a); hi = Math.max(hi, a); }
+  const length = hi - lo, thr = 0.2 * length; let strokes = 0, dir = 0, ext = along[0], mn = along[0], mxv = along[0];
+  for (const v of along) {                                       // a stroke ends each time travel reverses by more than 20% of the path
+    if (dir === 0) { mn = Math.min(mn, v); mxv = Math.max(mxv, v); if (v - mn > thr) { dir = 1; ext = v; } else if (mxv - v > thr) { dir = -1; ext = v; } }
+    else if (dir === 1) { if (v > ext) ext = v; else if (ext - v > thr) { strokes++; dir = -1; ext = v; } }
+    else { if (v < ext) ext = v; else if (v - ext > thr) { strokes++; dir = 1; ext = v; } }
+  }
+  let tilt = th * 180 / Math.PI; if (tilt > 90) tilt -= 180; if (tilt < -90) tilt += 180;
+  const secs = (pts[n - 1].t - pts[0].t) / 1000;
+  return { wobble: Math.sqrt(sq / n), length, strokes, perMin: secs > 0 ? strokes * 60 / secs : null, tiltDeg: tilt };
 }
 
 export function handShape(h, aspect) {
@@ -626,6 +768,70 @@ function main() {
   }
   function stopSide() { P.running = false; }
 
+
+  /* ---------- fingerboard reference, exercises, teacher link ---------- */
+  const sizes = Object.keys(STRING_MM);
+  ['fbSize', 'tSize'].forEach(id => { $(id).innerHTML = sizes.map(z => `<option>${z}</option>`).join(''); });
+  $('exSel').innerHTML = EXERCISES.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+  $('tEx').innerHTML = '<option value="">None</option>' + EXERCISES.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+  function renderBoard() {
+    const sz = $('fbSize').value, f = (v, d = 1) => v.toFixed(d);
+    $('fbRows').innerHTML = fingerboardTable(sz).map(r => `<tr><td>${r.name}</td><td class="num">+${r.semis}</td><td>${r.region}</td><td class="num">${f(r.fromNutCm)}</td><td class="num">${f(100 * r.share)}%</td><td class="num">${f(r.gapMm)}</td><td class="num">${f(r.closedSpanMm, 0)}</td><td class="num">${f(r.extendedSpanMm, 0)}</td></tr>`).join('');
+    $('dsRows').innerHTML = DOUBLE_STOPS.map(([n, i]) => { const o = doubleStopOffset(i); return `<tr><td>${n}</td><td class="num">${i}</td><td>${o === 0 ? 'same place (flat finger)' : Math.abs(o) + (o < 0 ? ' toward the nut' : ' toward the bridge')}</td></tr>`; }).join('');
+  }
+  $('fbSize').onchange = renderBoard; renderBoard();
+  $('sizeSel').addEventListener('change', () => { $('fbSize').value = $('sizeSel').value; renderBoard(); });
+
+  let ex = null;
+  function renderEx() {
+    if (!ex) return;
+    const st = ex.tr.state;
+    $('exNotes').innerHTML = ex.names.map((n, i) => { const r = st.results[i]; const c = r ? (r.skipped ? 'skip' : r.ok ? 'ok' : 'off') : i === st.index ? 'now' : ''; return `<span class="${c}">${n}${r && !r.skipped ? ' ' + (r.cents >= 0 ? '+' : '') + r.cents.toFixed(0) : ''}</span>`; }).join('');
+    const sm = ex.tr.summary();
+    $('exMsg').textContent = sm.finished ? `Finished: ${sm.inTune} of ${sm.total} notes in tune, average error ${sm.avgAbsCents == null ? '-' : sm.avgAbsCents.toFixed(0)} cents${sm.wrong ? ', ' + sm.wrong + ' wrong note' + (sm.wrong > 1 ? 's' : '') : ''}.`
+      : `Play ${ex.names[st.index]}.`;
+  }
+  $('exStart').onclick = async () => {
+    const e = EXERCISES.find(x => x.id === $('exSel').value);
+    ex = { names: e.notes, tr: makeTracker(e.notes, { tolCents: +$('micTol').value, hold: 3 }) };
+    if (!mic) await startMic();
+    renderEx();
+  };
+  $('exSkip').onclick = () => { if (ex) { ex.tr.skip(); renderEx(); } };
+  function exFeed(n) { if (!ex) return; const before = ex.tr.state.index, wrong = ex.tr.state.wrong; ex.tr.feed(n ? { midi: n.midi, cents: n.cents } : null); if (ex.tr.state.index !== before || ex.tr.state.wrong !== wrong) renderEx(); }
+
+  $('tMake').onclick = () => {
+    const base = location.href.split('#')[0];
+    $('tLink').value = makeLink(base, { level: $('tLevel').value, focus: $('tFocus').value, size: $('tSize').value, arm: $('tArm').value, ex: $('tEx').value });
+    $('tCopy').disabled = false;
+  };
+  $('tCopy').onclick = () => { $('tLink').select(); try { navigator.clipboard.writeText($('tLink').value); } catch (e) { document.execCommand('copy'); } };
+  (function applyTeacher() {
+    const p = parseLink(location.hash); if (!Object.keys(p).length) return;
+    if (p.level) $('levelSel').value = p.level; if (p.focus) $('focusSel').value = p.focus;
+    if (p.size) { $('sizeSel').value = p.size; $('fbSize').value = p.size; renderBoard(); }
+    if (p.arm) $('armSel').value = p.arm; if (p.ex) $('exSel').value = p.ex;
+    applyLevel();
+    const b = $('tBanner'); b.hidden = false;
+    b.textContent = 'Settings from your teacher: ' + [p.level && p.level, p.focus && FOCUS[p.focus], p.size && 'cello ' + p.size, p.arm && p.arm + ' bow arm', p.ex && EXERCISES.find(e => e.id === p.ex).name].filter(Boolean).join(', ') + '.';
+  })();
+
+  const bow = { pts: [], t: 0 };
+  function bowSample(pose, arm, aspect, now) {
+    const si = arm === 'left' ? 11 : 12, wi = arm === 'left' ? 15 : 16, S = pose[si], Wr = pose[wi];
+    if (!S || !Wr || (S.visibility ?? 1) < 0.5 || (Wr.visibility ?? 1) < 0.5) return;
+    const sw = d2(pose[11], pose[12], aspect); if (sw < 1e-4) return;
+    const out = arm === 'right' ? -1 : 1;
+    bow.pts.push({ t: now, x: out * (Wr.x - S.x) * aspect / sw, y: (Wr.y - S.y) / sw });
+    while (bow.pts.length && now - bow.pts[0].t > 5000) bow.pts.shift();
+    if (now - bow.t > 500) {
+      bow.t = now; const r = bowPathStats(bow.pts);
+      $('stWobble').textContent = r && r.strokes >= 2 ? r.wobble.toFixed(2) : '-';
+      $('stTilt').textContent = r && r.strokes >= 2 ? Math.round(r.tiltDeg) + ' deg' : '-';
+    }
+  }
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
+
   /* tabs */
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
@@ -633,10 +839,12 @@ function main() {
     $('model').hidden = b.dataset.tab !== 'model';
     $('history').hidden = b.dataset.tab !== 'history';
     $('phone').hidden = b.dataset.tab !== 'phone';
+    $('board').hidden = b.dataset.tab !== 'board';
+    $('teacher').hidden = b.dataset.tab !== 'teacher';
     if (b.dataset.tab === 'history') renderHistory();
     $('test').hidden = b.dataset.tab !== 'test';
     if (b.dataset.tab === 'model') { MD.last = null; requestAnimationFrame(modelFrame); }
-    if (b.dataset.tab !== 'live' && b.dataset.tab !== 'history' && b.dataset.tab !== 'phone') { stopCam(); stopMic(); }
+    if (b.dataset.tab !== 'live' && b.dataset.tab !== 'history' && b.dataset.tab !== 'phone' && b.dataset.tab !== 'board' && b.dataset.tab !== 'teacher') { stopCam(); stopMic(); }
   });
 
   /* ---------- live mirror ---------- */
@@ -714,7 +922,7 @@ function main() {
 
     let st = { state: 'none', msg: 'Step back so your shoulders and bow arm are in view' }, em = null;
     if (pose) {
-      em = elbowMetrics(pose, arm, W / H);
+      em = elbowMetrics(pose, arm, W / H); bowSample(pose, arm, W / H, now);
       if (em && em.vis > 0.4) {
         if (S.collect) {
           S.collect.vals.push(em.rel); (S.collect.lens ||= []).push([em.upper, em.fore]);
@@ -794,11 +1002,12 @@ function main() {
   $('micBtn').onclick = () => mic ? stopMic() : startMic();
 
   function onPitch(r) {
-    if (!r.freq || r.prob < 0.85) { pit.streak = 0; $('mNote').textContent = '-'; $('mCents').textContent = '-'; $('mPos').textContent = '-'; return; }
+    if (!r.freq || r.prob < 0.85) { exFeed(null); pit.streak = 0; $('mNote').textContent = '-'; $('mCents').textContent = '-'; $('mPos').textContent = '-'; return; }
     const n = freqToNote(r.freq, +$('a4Sel').value);
     pit.streak = n.midi === pit.lastMidi ? pit.streak + 1 : 1; pit.lastMidi = n.midi;
     if (pit.streak < 2) return; // wait for two matching readings, so note changes do not flicker
     pit.voiced++; if (Math.abs(n.cents) <= +$('micTol').value) pit.inTune++;
+    exFeed(n);
     $('mNote').textContent = n.name;
     $('mCents').textContent = (n.cents >= 0 ? '+' : '') + n.cents.toFixed(0);
     $('mTune').textContent = Math.round(100 * pit.inTune / pit.voiced) + '%';
@@ -807,6 +1016,7 @@ function main() {
     $('mPos').textContent = pos.length
       ? pos.map(p => p.open ? `${p.string}: open` : `${p.string}: +${p.semitones.toFixed(0)} (${(100 * p.fromNut).toFixed(0)}%)`).join('   ')
       : 'Outside this string range';
+    if (pos.length) { const q = pos[0], L = stringMm($('sizeSel').value); $('mPos').textContent += `   |   ${regionOf(q.semitones)} region, about ${gapMm(L, Math.round(q.semitones)).toFixed(0)} mm per semitone here`; }
   }
 
   /* ---------- video test ---------- */
