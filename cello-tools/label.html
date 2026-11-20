@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fingertip labelling tool</title>
+<style>
+:root{--bg:#14181d;--panel:#1d232b;--line:#2c3540;--text:#e8edf2;--dim:#9aa6b2;--green:#5bbf8a;--amber:#f0b429;--blue:#6aa9e9}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:900px;margin:0 auto;padding:14px 16px 40px}
+h1{font-size:18px;margin:6px 0}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0}
+button,input[type=file]{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit;cursor:pointer}
+button.go{background:var(--green);color:#0c1a12;border-color:var(--green);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.note{font-size:13px;color:var(--dim)}
+.prompt{font-size:20px;font-weight:600;margin:8px 0}
+canvas{width:100%;max-width:720px;height:auto;display:block;background:#000;border:1px solid var(--line);border-radius:10px;cursor:crosshair;touch-action:none}
+.hid{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+progress{width:100%;height:10px}
+</style>
+</head>
+<body>
+<main>
+<h1>Fingertip labelling tool</h1>
+<p class="note">Load the video and the manifest file, then click 7 points on each frame: the wrist, the knuckle at the base of the middle finger, and the five fingertips. Everything stays on your computer.</p>
+<div class="bar">
+  <label>Video <input type="file" id="vidFile" accept="video/*"></label>
+  <label>Manifest <input type="file" id="manFile" accept=".json,application/json"></label>
+</div>
+<div id="work" hidden>
+  <progress id="prog" value="0" max="1"></progress>
+  <div class="note" id="status"></div>
+  <div class="prompt" id="prompt"></div>
+  <canvas id="cv" width="720" height="720"></canvas>
+  <div class="bar">
+    <button id="prev">&larr; Previous</button>
+    <button id="undo">Undo point (Backspace)</button>
+    <button id="occ">Can't see this point (X)</button>
+    <button id="skip">Hand not in this picture (S)</button>
+    <button id="next">Next &rarr;</button>
+    <button id="save" class="go">Download labels</button>
+  </div>
+  <p class="note">Click on the exact centre of the fingertip, even if it is slightly blurred. If a fingertip is hidden by the neck or another finger, press X for that point. If no left hand is in the picture, press S. Your progress is saved in this browser as you go.</p>
+</div>
+<video id="vid" class="hid" playsinline muted preload="auto"></video>
+
+<script type="module">
+export const POINTS = [
+  ['wrist', 'Wrist (centre of the base of the hand)'],
+  ['mcp', 'Knuckle at the base of the MIDDLE finger'],
+  ['thumb', 'Thumb tip'],
+  ['index', 'Index fingertip'],
+  ['middle', 'Middle fingertip'],
+  ['ring', 'Ring fingertip'],
+  ['little', 'Little fingertip']
+];
+// box = [x0,y0,x1,y1] as fractions of the video frame; size = canvas size in pixels
+export function canvasToVideo(box, x, y, size) { return [box[0] + (x / size) * (box[2] - box[0]), box[1] + (y / size) * (box[3] - box[1])]; }
+export function videoToCanvas(box, p, size) { return [(p[0] - box[0]) / (box[2] - box[0]) * size, (p[1] - box[1]) / (box[3] - box[1]) * size]; }
+
+function main() {
+  const $ = id => document.getElementById(id);
+  const video = $('vid'), cv = $('cv'), ctx = cv.getContext('2d'), S = cv.width;
+  let manifest = null, labels = [], cur = 0, ready = false;
+  const key = () => 'labels-' + (manifest && manifest.id);
+
+  function load() {
+    if (!manifest || !video.src) return;
+    try { const saved = JSON.parse(localStorage.getItem(key()) || 'null'); if (saved && saved.length === manifest.frames.length) labels = saved; } catch (e) {}
+    if (labels.length !== manifest.frames.length) labels = manifest.frames.map(() => ({ pts: [], skipped: false }));
+    $('work').hidden = false; $('prog').max = manifest.frames.length;
+    const first = labels.findIndex(l => !l.skipped && l.pts.length < POINTS.length);
+    show(first < 0 ? 0 : first);
+  }
+  $('vidFile').onchange = e => { const f = e.target.files[0]; if (f) { video.src = URL.createObjectURL(f); video.onloadedmetadata = () => { ready = true; load(); }; } };
+  $('manFile').onchange = async e => { const f = e.target.files[0]; if (f) { manifest = JSON.parse(await f.text()); if (ready) load(); } };
+
+  const seek = t => new Promise(res => {
+    let done = false; const fin = () => { if (done) return; done = true; video.removeEventListener('seeked', fin); setTimeout(res, 40); };
+    if (Math.abs(video.currentTime - t) < 1e-3) return fin();
+    video.addEventListener('seeked', fin); video.currentTime = t; setTimeout(fin, 2000);
+  });
+  const persist = () => { try { localStorage.setItem(key(), JSON.stringify(labels)); } catch (e) {} };
+
+  async function show(i) {
+    cur = Math.max(0, Math.min(manifest.frames.length - 1, i));
+    await seek(manifest.frames[cur].t); draw(); updateText();
+  }
+  function draw() {
+    const f = manifest.frames[cur], W = video.videoWidth, H = video.videoHeight, b = f.box;
+    ctx.drawImage(video, b[0] * W, b[1] * H, (b[2] - b[0]) * W, (b[3] - b[1]) * H, 0, 0, S, S);
+    const l = labels[cur];
+    l.pts.forEach((p, k) => {
+      if (!p) return; const [x, y] = videoToCanvas(b, p, S);
+      ctx.strokeStyle = '#00e0ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.stroke();
+      ctx.fillStyle = '#ffeb3b'; ctx.font = '14px sans-serif'; ctx.fillText(String(k + 1), x + 9, y - 7);
+    });
+    if (l.skipped) { ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(0, 0, S, S); ctx.fillStyle = '#f0b429'; ctx.font = '28px sans-serif'; ctx.fillText('No hand in this picture', 150, S / 2); }
+  }
+  function updateText() {
+    const l = labels[cur], done = labels.filter(x => x.skipped || x.pts.length >= POINTS.length).length;
+    $('prog').value = done;
+    $('status').textContent = `Frame ${cur + 1} of ${manifest.frames.length}. Finished ${done}.`;
+    $('prompt').textContent = l.skipped ? 'Marked: no hand in the picture' : l.pts.length >= POINTS.length ? 'Frame finished. Press Next.' : `Point ${l.pts.length + 1} of ${POINTS.length}: ${POINTS[l.pts.length][1]}`;
+  }
+  function advanceIfDone() { const l = labels[cur]; if (l.skipped || l.pts.length >= POINTS.length) { persist(); if (cur < manifest.frames.length - 1) show(cur + 1); else { draw(); updateText(); } } else { persist(); draw(); updateText(); } }
+
+  cv.addEventListener('pointerdown', e => {
+    if (!manifest) return; const l = labels[cur]; if (l.skipped || l.pts.length >= POINTS.length) return;
+    const r = cv.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * S, y = (e.clientY - r.top) / r.height * S;
+    l.pts.push(canvasToVideo(manifest.frames[cur].box, x, y, S)); advanceIfDone();
+  });
+  $('undo').onclick = undo; $('occ').onclick = occ; $('skip').onclick = skip;
+  $('prev').onclick = () => show(cur - 1); $('next').onclick = () => show(cur + 1);
+  function undo() { const l = labels[cur]; if (l.skipped) l.skipped = false; else l.pts.pop(); persist(); draw(); updateText(); }
+  function occ() { const l = labels[cur]; if (l.skipped || l.pts.length >= POINTS.length) return; l.pts.push(null); advanceIfDone(); }
+  function skip() { const l = labels[cur]; l.skipped = true; l.pts = []; advanceIfDone(); }
+  document.addEventListener('keydown', e => {
+    if (!manifest) return;
+    if (e.key === 'Backspace') { e.preventDefault(); undo(); }
+    else if (e.key === 'x' || e.key === 'X') occ();
+    else if (e.key === 's' || e.key === 'S') skip();
+    else if (e.key === 'ArrowRight') show(cur + 1);
+    else if (e.key === 'ArrowLeft') show(cur - 1);
+  });
+  $('save').onclick = () => {
+    const out = { manifest_id: manifest.id, video: manifest.video, point_names: POINTS.map(p => p[0]),
+      labels: manifest.frames.map((f, k) => ({ idx: f.idx, i: f.i, t: f.t, band: f.band, box: f.box, skipped: labels[k].skipped, pts: labels[k].pts })) };
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(out)], { type: 'application/json' }));
+    a.download = 'fingertip-labels.json'; a.click();
+  };
+}
+if (typeof document !== 'undefined') main();
+</script>
+</main>
+</body>
+</html>

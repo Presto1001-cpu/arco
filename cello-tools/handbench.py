@@ -88,6 +88,21 @@ def summarize(frames):
 def verdict(pct):
     return "good" if pct >= 90 else "shaky" if pct >= 70 else "poor"
 
+
+def pick_hand(hands, rule="rightmost", aspect=1.0):
+    """Choose one hand from a list of 21x2 landmark lists. rule: rightmost | leftmost | largest | first.
+    Used to follow "the hand on the fingerboard" when two hands are in view (the neck hand is the
+    rightmost in a typical front view, the leftmost if the camera is mirrored)."""
+    if not hands:
+        return None
+    if rule == "rightmost":
+        return max(hands, key=lambda h: h[0][0])
+    if rule == "leftmost":
+        return min(hands, key=lambda h: h[0][0])
+    if rule == "largest":
+        return max(hands, key=lambda h: hand_shape(h, aspect)[0])
+    return hands[0]
+
 # ---------------------------------------------------------------- backends
 
 class MediaPipeBackend:
@@ -114,9 +129,9 @@ class MediaPipeBackend:
 class RtmlibBackend:
     name = "rtmlib"
 
-    def __init__(self, mode="balanced", **_):
-        from rtmlib import Wholebody
-        self.model = Wholebody(mode=mode, backend="onnxruntime", device="cpu", to_openpose=False)
+    def __init__(self, rtm_mode="balanced", device="cpu", **_):
+        from rtmlib import Wholebody       # modes: performance | balanced | lightweight
+        self.model = Wholebody(mode=rtm_mode, backend="onnxruntime", device=device, to_openpose=False)
 
     def detect(self, bgr):
         h, w = bgr.shape[:2]
@@ -222,12 +237,14 @@ def main():
     ap.add_argument("--complexity", type=int, choices=[0, 1], default=1, help="mediapipe model: 0 lite, 1 full")
     ap.add_argument("--out", default="handbench_out", help="folder for CSV/JSON results")
     ap.add_argument("--annotate", action="store_true", help="also write an annotated .mp4 per clip")
+    ap.add_argument("--rtm-mode", choices=["performance", "balanced", "lightweight"], default="balanced", help="rtmlib model size")
+    ap.add_argument("--device", choices=["cpu", "cuda"], default="cpu", help="rtmlib device (cuda needs onnxruntime-gpu)")
     ap.add_argument("--max-seconds", type=float, default=None, help="stop at this time in the clip")
     ap.add_argument("--start-seconds", type=float, default=0.0, help="start at this time in the clip")
     ap.add_argument("--save-landmarks", action="store_true", help="store all 21 points per hand in the JSON")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    backend = BACKENDS[a.backend](mode=a.mode, complexity=a.complexity)
+    backend = BACKENDS[a.backend](mode=a.mode, complexity=a.complexity, rtm_mode=a.rtm_mode, device=a.device)
     for v in a.videos:
         stem = os.path.splitext(os.path.basename(v))[0] + f"_{a.backend}_{a.mode}"
         r = analyse(v, backend, a.fps, os.path.join(a.out, stem + "_annotated.mp4") if a.annotate else None, a.max_seconds,
