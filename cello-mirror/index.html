@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Cello Mirror - prototype v0.1</title>
+<title>Cello Mirror - prototype v0.2</title>
 <style>
 :root{--bg:#14181d;--panel:#1d232b;--line:#2c3540;--text:#e8edf2;--dim:#9aa6b2;--green:#5bbf8a;--amber:#f0b429;--red:#e5605a;--blue:#6aa9e9}
 *{box-sizing:border-box}
@@ -38,6 +38,7 @@ th{color:var(--dim);font-weight:500;font-size:13px}
 progress{width:100%;height:10px}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:12px}
 .note{font-size:13px;color:var(--dim)}
+@media(max-width:600px){#history th:nth-child(3),#history td:nth-child(3){display:none}#history td:nth-child(6){font-size:12px;min-width:150px}#history th,#history td{padding:6px 5px}}
 #meter{position:relative;height:14px;margin-top:12px;border-radius:7px;background:linear-gradient(90deg,#3a2f20 0,#1f3a2c 40%,#1f3a2c 60%,#3a2f20 100%);border:1px solid var(--line)}
 #meter::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:2px;background:var(--dim)}
 #needle{position:absolute;top:-3px;bottom:-3px;width:6px;margin-left:-3px;left:50%;border-radius:3px;background:var(--blue);transition:left .08s}
@@ -45,8 +46,8 @@ progress{width:100%;height:10px}
 </head>
 <body>
 <header>
-  <h1>Cello Mirror <small>prototype v0.1</small></h1>
-  <nav><button data-tab="live" class="on">Live mirror</button><button data-tab="model">Model player</button><button data-tab="test">Video test</button></nav>
+  <h1>Cello Mirror <small>prototype v0.2</small></h1>
+  <nav><button data-tab="live" class="on">Live mirror</button><button data-tab="phone">Phone camera</button><button data-tab="history">History</button><button data-tab="model">Model player</button><button data-tab="test">Video test</button></nav>
 </header>
 <main>
 
@@ -60,6 +61,8 @@ progress{width:100%;height:10px}
     <label>Body model
       <select id="poseSel"><option value="full" selected>Full</option><option value="heavy">Heavy (slowest, most accurate)</option><option value="lite">Lite (fastest)</option></select>
     </label>
+    <label>Level <select id="levelSel"><option value="beginner">Beginner</option><option value="advanced">Advanced</option></select></label>
+    <label>Teacher focus <select id="focusSel"><option value="both">Bow arm and intonation</option><option value="bow">Bow arm</option><option value="tune">Intonation</option></select></label>
     <label><input type="checkbox" id="ghostOn"> Show model arm</label>
     <label>Model speed <input type="range" id="ghostSpeed" min="20" max="120" value="40"></label>
     <label>Cello size
@@ -85,8 +88,10 @@ progress{width:100%;height:10px}
     <div class="stat"><b id="stDrops">0</b><span>Elbow drops</span></div>
     <div class="stat"><b id="stAngle">-</b><span>Elbow angle</span></div>
     <div class="stat"><b id="stHands">0</b><span>Hands seen</span></div>
+    <div class="stat"><b id="stCurve">-</b><span>Left-hand finger curve (experimental, 1 = straight)</span></div>
     <div class="stat"><b id="stFps">-</b><span>Frames / second</span></div>
   </div>
+  <div class="bar"><button class="act" id="saveSess">Finish and save session</button><span class="note">Saves numbers only. The counters then start again.</span></div>
   <div class="msg" id="liveMsg"></div>
 
   <div class="panel">
@@ -106,6 +111,36 @@ progress{width:100%;height:10px}
     <p class="note">Works on its own, without the camera. Measured against standard tuning, not against the note you meant to play. Use a quiet room and one instrument at a time.</p>
   </div>
   <p class="note">Only numbers are kept, never video. Nothing leaves this page.</p>
+</section>
+
+<section id="phone" hidden>
+  <div class="panel"><b>Side camera from a phone or tablet</b>
+    <p class="note">The video goes straight from the phone to this page over your Wi-Fi. There is no server and nothing is recorded. Both devices need this page open. Pairing takes two codes, one each way, which you copy across with any messaging app.</p></div>
+  <div class="panel"><b>On this computer</b>
+    <div class="bar"><button class="act go" id="pcMake">1. Make code for the phone</button></div>
+    <textarea id="pcOffer" rows="3" readonly placeholder="The code appears here. Copy it to the phone." style="width:100%"></textarea>
+    <div class="bar"><button class="act" id="pcCopy" disabled>Copy code</button></div>
+    <textarea id="pcAnswer" rows="3" placeholder="2. Paste the phone's reply code here" style="width:100%"></textarea>
+    <div class="bar"><button class="act go" id="pcConnect">3. Connect</button></div></div>
+  <div class="panel"><b>On the phone</b>
+    <textarea id="phOffer" rows="3" placeholder="Paste the code from the computer here" style="width:100%"></textarea>
+    <div class="bar"><button class="act go" id="phStart">Start camera and make reply code</button></div>
+    <textarea id="phAnswer" rows="3" readonly placeholder="The reply code appears here. Copy it back to the computer." style="width:100%"></textarea>
+    <div class="bar"><button class="act" id="phCopy" disabled>Copy reply code</button></div></div>
+  <div class="msg" id="pMsg"></div>
+  <div class="stage"><canvas id="sideCv" width="1280" height="720"></canvas><div class="badge" id="sideBadge">No phone connected</div></div>
+  <video id="sideVid" class="hid" playsinline muted></video>
+  <div class="stats"><div class="stat"><b id="sCurve">-</b><span>Finger curve, side view (experimental)</span></div><div class="stat"><b id="sHands">0</b><span>Hands seen</span></div></div>
+  <p class="note">Place the phone on the fingerboard side, level with the left hand, with the hand and neck filling the picture. See the filming protocol for the best angle.</p>
+</section>
+
+<section id="history" hidden>
+  <div class="stats" id="hWeek"></div>
+  <div class="panel"><b>Last sessions</b><canvas id="hCv" width="900" height="200" style="width:100%;height:auto;margin-top:8px"></canvas>
+    <p class="note">Green bars: bow arm in the good zone. Blue bars: notes in tune. Newest on the right.</p></div>
+  <table><thead><tr><th>When</th><th>Time</th><th>Level</th><th>Bow arm</th><th>In tune</th><th>Summary</th></tr></thead><tbody id="hRows"></tbody></table>
+  <div class="bar"><button class="act" id="hExport">Download as JSON</button><button class="act" id="hClear">Delete all sessions</button></div>
+  <p class="note">Sessions are kept in this browser only, as numbers. Nothing is uploaded.</p>
 </section>
 
 <section id="model" hidden>
@@ -200,6 +235,87 @@ export function modelArm(m, phase) {
   const q = (1 - Math.cos(2 * Math.PI * phase)) / 2;       // 0 at the frog, 1 at the tip, smooth turnarounds
   const x = m.centre - m.amp / 2 + m.amp * q;
   return { ...solveArm(m.upper, m.fore, x, m.drop), tip: q, down: phase < 0.5 };
+}
+
+// ---- Sessions: only numbers are stored, never video or audio ----
+export const LEVELS = { beginner: { tol: 25, cents: 25 }, advanced: { tol: 15, cents: 10 } };
+export const FOCUS = { both: 'Bow arm and intonation', bow: 'Bow arm', tune: 'Intonation' };
+
+export function sessionRecord(x) {
+  const pct = (a, b) => (b > 0 ? Math.round(1000 * a / b) / 10 : null);
+  return {
+    at: x.at, seconds: Math.round(x.seconds), level: x.level, focus: x.focus, arm: x.arm, size: x.size,
+    greenPct: pct(x.green, x.frames), drops: x.drops, tunePct: pct(x.inTune, x.voiced), notes: x.voiced,
+  };
+}
+
+export function weekStats(list, now, days = 7) {
+  const from = now - days * 86400000, w = list.filter(r => r.at >= from);
+  const avg = k => { const v = w.map(r => r[k]).filter(v => v != null); return v.length ? Math.round(10 * v.reduce((a, b) => a + b, 0) / v.length) / 10 : null; };
+  return { sessions: w.length, minutes: Math.round(w.reduce((a, r) => a + r.seconds, 0) / 60), greenPct: avg('greenPct'), tunePct: avg('tunePct'), days: new Set(w.map(r => new Date(r.at).toDateString())).size };
+}
+
+// One plain sentence a teacher would say. It mentions only what the teacher asked to focus on.
+export function sessionSummary(r) {
+  const parts = [];
+  if (r.seconds < 30) return 'Session too short to say anything useful.';
+  if (r.focus !== 'tune') parts.push(r.greenPct == null ? 'The bow arm was not measured (no baseline set).' : r.greenPct >= 80 ? `Bow arm steady for ${r.greenPct}% of the time.` : `Bow arm in the good zone ${r.greenPct}% of the time${r.drops ? `, with ${r.drops} elbow drop${r.drops > 1 ? 's' : ''}` : ''}.`);
+  if (r.focus !== 'bow') parts.push(r.tunePct == null ? 'No notes were heard for intonation.' : r.tunePct >= 80 ? `${r.tunePct}% of ${r.notes} notes were in tune.` : `${r.tunePct}% of ${r.notes} notes were in tune; slow practice may help.`);
+  return parts.join(' ');
+}
+
+// ---- Left hand signals (experimental; thresholds wait for a teacher) ----
+const FINGERS = [[5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20]];
+// Curve of one finger: 1 = straight, lower = more curved (knuckle to tip distance over the three bone lengths).
+export function fingerCurve(h, f, aspect = 1) {
+  const [m, p, i, t] = f.map(k => h[k]);
+  const seg = d2(m, p, aspect) + d2(p, i, aspect) + d2(i, t, aspect);
+  return seg > 1e-6 ? d2(m, t, aspect) / seg : null;
+}
+export function handCurve(h, aspect = 1) {
+  const c = FINGERS.map(f => fingerCurve(h, f, aspect)).filter(v => v != null);
+  return c.length ? c.reduce((a, b) => a + b, 0) / c.length : null;
+}
+// Exponential smoothing: raw curve moves ~0.02-0.035 per frame from noise alone, real changes are ~0.14 wide.
+export function smoothStep(prev, x, k = 0.25) { return x == null ? prev : prev == null ? x : prev + k * (x - prev); }
+// The neck hand is the one farthest from the bow wrist; with one hand in view it is that hand.
+export function pickNeckHand(hands, pose, arm, aspect = 1) {
+  if (!hands || !hands.length) return null;
+  const bw = pose && pose[arm === 'left' ? 15 : 16];
+  if (hands.length === 1 || !bw) return hands[0];
+  return hands.reduce((best, h) => (d2(h[0], bw, aspect) > d2(best[0], bw, aspect) ? h : best));
+}
+
+// ---- Phone side camera: pairing codes for a direct browser-to-browser video link (no server) ----
+export function encodeSignal(desc) { return btoa(unescape(encodeURIComponent(JSON.stringify({ t: desc.type, s: desc.sdp })))); }
+export function decodeSignal(text) {
+  try {
+    const clean = String(text || '').replace(/\s+/g, '');
+    const o = JSON.parse(decodeURIComponent(escape(atob(clean))));
+    if (o && (o.t === 'offer' || o.t === 'answer') && typeof o.s === 'string' && o.s.indexOf('v=0') === 0) return { type: o.t, sdp: o.s };
+  } catch (e) {}
+  throw new Error('That is not a pairing code. Copy the whole code, with nothing added.');
+}
+async function pipe(bytes, stream) {
+  const out = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+  return new Uint8Array(await out.arrayBuffer());
+}
+const b64 = u8 => { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return btoa(s); };
+// Compressed code: starts with "Z". Falls back to the plain code where the browser cannot compress.
+export async function packSignal(desc) {
+  if (typeof CompressionStream === 'undefined') return encodeSignal(desc);
+  const z = await pipe(new TextEncoder().encode(JSON.stringify({ t: desc.type, s: desc.sdp })), new CompressionStream('deflate-raw'));
+  return 'Z' + b64(z);
+}
+export async function unpackSignal(text) {
+  const clean = String(text || '').replace(/\s+/g, '');
+  if (clean[0] !== 'Z') return decodeSignal(clean);
+  try {
+    const bin = atob(clean.slice(1)), u8 = Uint8Array.from(bin, c => c.charCodeAt(0));
+    const o = JSON.parse(new TextDecoder().decode(await pipe(u8, new DecompressionStream('deflate-raw'))));
+    if (o && (o.t === 'offer' || o.t === 'answer') && typeof o.s === 'string' && o.s.indexOf('v=0') === 0) return { type: o.t, sdp: o.s };
+  } catch (e) {}
+  throw new Error('That is not a pairing code. Copy the whole code, with nothing added.');
 }
 
 export function handShape(h, aspect) {
@@ -409,14 +525,118 @@ function main() {
   }
   $('mdPlay').onclick = () => { MD.play = !MD.play; $('mdPlay').textContent = MD.play ? 'Pause' : 'Play'; };
 
+
+  /* ---------- sessions ---------- */
+  const SKEY = 'cm-sessions';
+  const loadSess = () => { try { const v = JSON.parse(localStorage.getItem(SKEY) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+  const storeSess = l => { try { localStorage.setItem(SKEY, JSON.stringify(l.slice(-500))); } catch (e) {} };
+  function applyLevel() {
+    const L = LEVELS[$('levelSel').value]; $('tol').value = L.tol; $('tolVal').textContent = (L.tol / 100).toFixed(2) + ' shoulder widths'; $('micTol').value = String(L.cents);
+    try { localStorage.setItem('cm-prefs', JSON.stringify({ level: $('levelSel').value, focus: $('focusSel').value })); } catch (e) {}
+  }
+  try { const p = JSON.parse(localStorage.getItem('cm-prefs') || 'null'); if (p) { $('levelSel').value = p.level || 'beginner'; $('focusSel').value = p.focus || 'both'; } } catch (e) {}
+  $('levelSel').onchange = applyLevel; $('focusSel').onchange = () => { try { localStorage.setItem('cm-prefs', JSON.stringify({ level: $('levelSel').value, focus: $('focusSel').value })); } catch (e) {} };
+  applyLevel();
+  $('saveSess').onclick = () => {
+    const rec = sessionRecord({ at: Date.now(), seconds: stats.ms / 1000, frames: stats.frames, green: stats.green, drops: stats.drops, voiced: pit.voiced, inTune: pit.inTune,
+      level: $('levelSel').value, focus: $('focusSel').value, arm: $('armSel').value, size: $('sizeSel').value });
+    const msg = $('liveMsg'); msg.className = 'msg';
+    if (rec.seconds < 5 && !rec.notes) { msg.textContent = 'Nothing to save yet. Start the camera or microphone and play first.'; return; }
+    const l = loadSess(); l.push(rec); storeSess(l);
+    Object.assign(stats, { frames: 0, green: 0, drops: 0, ms: 0, amberRun: 0, flagged: false }); Object.assign(pit, { voiced: 0, inTune: 0 });
+    $('mTune').textContent = '-'; renderStats();
+    msg.textContent = 'Saved. ' + sessionSummary(rec);
+  };
+  function renderHistory() {
+    const l = loadSess(), w = weekStats(l, Date.now());
+    $('hWeek').innerHTML = [['Sessions this week', w.sessions], ['Minutes', w.minutes], ['Days practised', w.days], ['Bow arm in zone', w.greenPct == null ? '-' : w.greenPct + '%'], ['Notes in tune', w.tunePct == null ? '-' : w.tunePct + '%']]
+      .map(([k, v]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join('');
+    $('hRows').innerHTML = l.slice().reverse().slice(0, 30).map(r => `<tr><td>${new Date(r.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td><td>${Math.floor(r.seconds / 60)}:${String(r.seconds % 60).padStart(2, '0')}</td><td>${r.level}</td><td>${r.greenPct == null ? '-' : r.greenPct + '%'}</td><td>${r.tunePct == null ? '-' : r.tunePct + '%'}</td><td>${sessionSummary(r)}</td></tr>`).join('') || '<tr><td colspan="6" class="note">No sessions yet.</td></tr>';
+    const cv = $('hCv'), c = cv.getContext('2d'), n = Math.min(l.length, 20), last = l.slice(-n), bw = cv.width / Math.max(n, 10);
+    c.clearRect(0, 0, cv.width, cv.height); c.strokeStyle = '#2c3540'; c.beginPath(); c.moveTo(0, cv.height - 0.5); c.lineTo(cv.width, cv.height - 0.5); c.stroke();
+    last.forEach((r, i) => { [[r.greenPct, '#5bbf8a', 0], [r.tunePct, '#6aa9e9', 0.5]].forEach(([v, col, o]) => { if (v == null) return; c.fillStyle = col; const h = v / 100 * (cv.height - 6); c.fillRect((i + o * 0.9) * bw + 3, cv.height - h, bw * 0.4, h); }); });
+  }
+  $('hExport').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(loadSess(), null, 1)], { type: 'application/json' })); a.download = 'cello-sessions.json'; a.click(); };
+  $('hClear').onclick = () => { if (confirm('Delete all saved sessions from this browser?')) { storeSess([]); renderHistory(); } };
+
+
+  /* ---------- phone side camera ---------- */
+  const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+  const P = { pc: null, stream: null, running: false, hands: null, curve: null };
+  const pMsg = (t, err) => { $('pMsg').className = 'msg' + (err ? ' err' : ''); $('pMsg').textContent = t; };
+  const gathered = pc => new Promise(res => {
+    if (pc.iceGatheringState === 'complete') return res();
+    const t = setTimeout(res, 4000);
+    pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } });
+  });
+  function watch(pc) {
+    pc.onconnectionstatechange = () => {
+      const st = pc.connectionState; $('sideBadge').textContent = st === 'connected' ? 'Phone connected' : st === 'failed' ? 'Connection failed' : st === 'disconnected' ? 'Phone disconnected' : 'Connecting...';
+      if (st === 'failed') pMsg('Could not connect. Check that both devices are on the same Wi-Fi, then start again.', true);
+    };
+  }
+  $('pcMake').onclick = async () => {
+    try {
+      if (P.pc) P.pc.close(); const pc = P.pc = new RTCPeerConnection(ICE); watch(pc);
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.ontrack = e => { $('sideVid').srcObject = e.streams[0]; $('sideVid').play().catch(() => {}); startSide(); };
+      await pc.setLocalDescription(await pc.createOffer()); await gathered(pc);
+      $('pcOffer').value = await packSignal(pc.localDescription); $('pcCopy').disabled = false;
+      pMsg('Copy this code to the phone, open this page there, and paste it under "On the phone".');
+    } catch (e) { pMsg('Could not make a code: ' + e.message, true); }
+  };
+  $('pcCopy').onclick = () => { $('pcOffer').select(); try { navigator.clipboard.writeText($('pcOffer').value); } catch (e) { document.execCommand('copy'); } };
+  $('phCopy').onclick = () => { $('phAnswer').select(); try { navigator.clipboard.writeText($('phAnswer').value); } catch (e) { document.execCommand('copy'); } };
+  $('pcConnect').onclick = async () => {
+    try { if (!P.pc) throw new Error('Make the code first.'); await P.pc.setRemoteDescription(await unpackSignal($('pcAnswer').value)); pMsg('Connecting...'); }
+    catch (e) { pMsg(e.message, true); }
+  };
+  $('phStart').onclick = async () => {
+    try {
+      const offer = await unpackSignal($('phOffer').value); if (offer.type !== 'offer') throw new Error('Paste the code from the computer, not a reply code.');
+      if (P.pc) P.pc.close(); const pc = P.pc = new RTCPeerConnection(ICE); watch(pc);
+      P.stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } } });
+      P.stream.getTracks().forEach(t => pc.addTrack(t, P.stream));
+      await pc.setRemoteDescription(offer); await pc.setLocalDescription(await pc.createAnswer()); await gathered(pc);
+      $('phAnswer').value = await packSignal(pc.localDescription); $('phCopy').disabled = false;
+      pMsg('Copy the reply code back to the computer and press Connect there. Keep this page open.');
+    } catch (e) { pMsg('Could not start: ' + e.message, true); }
+  };
+  async function startSide() {
+    if (P.running) return; P.running = true;
+    try { await ensureModels(t => pMsg(t)); P.hands = await S.make(S.vision.HandLandmarker, HAND_MODEL, { numHands: 1 }); }
+    catch (e) { loadErr($('pMsg'), e); }
+    const v = $('sideVid'), cv = $('sideCv'), c = cv.getContext('2d'); let lastT = -1, ts = 0;
+    (function tick() {
+      if (!P.running) return;
+      if (v.readyState >= 2 && v.videoWidth && v.currentTime !== lastT) {
+        lastT = v.currentTime; if (cv.width !== v.videoWidth) { cv.width = v.videoWidth; cv.height = v.videoHeight; }
+        c.drawImage(v, 0, 0, cv.width, cv.height);
+        if (P.hands) {
+          try {
+            ts = Math.max(performance.now(), ts + 1); const r = P.hands.detectForVideo(v, ts), hs = r.landmarks || [];
+            hs.forEach(h => drawHand(c, h, cv.width, cv.height, '#6aa9e9'));
+            P.curve = hs[0] ? smoothStep(P.curve, handCurve(hs[0], cv.width / cv.height)) : null;
+            $('sCurve').textContent = P.curve == null ? '-' : P.curve.toFixed(2); $('sHands').textContent = hs.length;
+          } catch (e) {}
+        }
+      }
+      requestAnimationFrame(tick);
+    })();
+  }
+  function stopSide() { P.running = false; }
+
   /* tabs */
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
     $('live').hidden = b.dataset.tab !== 'live';
     $('model').hidden = b.dataset.tab !== 'model';
+    $('history').hidden = b.dataset.tab !== 'history';
+    $('phone').hidden = b.dataset.tab !== 'phone';
+    if (b.dataset.tab === 'history') renderHistory();
     $('test').hidden = b.dataset.tab !== 'test';
     if (b.dataset.tab === 'model') { MD.last = null; requestAnimationFrame(modelFrame); }
-    if (b.dataset.tab !== 'live') { stopCam(); stopMic(); }
+    if (b.dataset.tab !== 'live' && b.dataset.tab !== 'history' && b.dataset.tab !== 'phone') { stopCam(); stopMic(); }
   });
 
   /* ---------- live mirror ---------- */
@@ -526,6 +746,9 @@ function main() {
     } else { stats.prev = now; }
     const hands = hr.landmarks || [];
     hands.forEach(h => drawHand(ctx, h, W, H, '#6aa9e9'));
+    const neck = pickNeckHand(hands, pose, arm, W / H);
+    S.curve = smoothStep(S.curve, neck ? handCurve(neck, W / H) : null);
+    if (!neck) S.curve = null;
     ctx.restore();
 
     $('badge').textContent = st.msg; $('badge').className = 'badge ' + (st.state === 'green' ? 'green' : st.state === 'amber' ? 'amber' : '');
@@ -541,6 +764,7 @@ function main() {
     $('stDrops').textContent = stats.drops;
     $('stAngle').textContent = last.angle == null ? '-' : Math.round(last.angle) + ' deg';
     $('stHands').textContent = last.hands;
+    $('stCurve').textContent = S.curve == null ? '-' : S.curve.toFixed(2);
     $('stFps').textContent = stats.fps ? stats.fps.toFixed(0) : '-';
   }
 
