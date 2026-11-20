@@ -108,7 +108,7 @@ def pick_hand(hands, rule="rightmost", aspect=1.0):
 class MediaPipeBackend:
     name = "mediapipe"
 
-    def __init__(self, mode="tracking", complexity=1, conf=0.5):
+    def __init__(self, mode="tracking", complexity=1, conf=0.5, **_ignored):
         import mediapipe as mp
         if not hasattr(mp, "solutions"):
             sys.exit('This MediaPipe has no legacy "solutions" API. Install: pip install "mediapipe==0.10.14" "numpy<2"')
