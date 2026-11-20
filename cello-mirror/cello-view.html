@@ -1,0 +1,50 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cello to scale</title>
+<style>
+body{margin:0;background:#0f1419;color:#e6ecf2;font:15px system-ui,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:0 0 4px}.note{color:#9fb0c0;font-size:13px;margin:6px 0 12px}
+canvas{width:100%;background:#0b0f13;border:1px solid #26313c;border-radius:8px}
+table{border-collapse:collapse;width:100%;margin-top:14px;font-size:13px}td,th{border-bottom:1px solid #26313c;padding:5px 8px;text-align:left}
+.ok{color:#4ade80}.est{color:#fbbf24}
+</style></head><body><main>
+<h1>Full-size cello, drawn to scale</h1>
+<div class="note">1:1 proportions in millimetres. Lengths and widths below are the middle of what makers and museums publish. The shape <b>between</b> the widest points is an estimate, not a trace of a real cello. The grid is 100 mm.</div>
+<canvas id="cv" width="1000" height="1350"></canvas>
+<table id="tb"><thead><tr><th>Dimension</th><th>Used (mm)</th><th>Seen in sources</th><th>Status</th></tr></thead><tbody></tbody></table>
+</main>
+<script type="module">
+import { SPEC, outline, layout, neckLength } from './cello-geometry.mjs';
+const cv = document.getElementById('cv'), c = cv.getContext('2d'), L = layout(SPEC);
+const top = L.pegboxTop - 70, bottom = SPEC.bodyLength.v + 260, k = (cv.height - 60) / (bottom - top), cx = cv.width * 0.5;
+const X = x => cx + x * k, Y = y => 30 + (y - top) * k;
+c.fillStyle = '#0b0f13'; c.fillRect(0, 0, cv.width, cv.height);
+c.strokeStyle = '#1c2530'; c.lineWidth = 1; c.fillStyle = '#5d7184'; c.font = '12px system-ui';
+for (let y = Math.ceil(top / 100) * 100; y < bottom; y += 100) { c.beginPath(); c.moveTo(0, Y(y)); c.lineTo(cv.width, Y(y)); c.stroke(); c.fillText(y + ' mm', 6, Y(y) - 3); }
+for (let x = -400; x <= 400; x += 100) { c.beginPath(); c.moveTo(X(x), 0); c.lineTo(X(x), cv.height); c.stroke(); }
+const path = (pts, close) => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(X(x), Y(y)) : c.moveTo(X(x), Y(y))); if (close) c.closePath(); };
+// body
+path(outline(SPEC, 2), true); c.fillStyle = '#3a2a1c'; c.fill(); c.strokeStyle = '#c89b66'; c.lineWidth = 2; c.stroke();
+// neck, pegbox, scroll
+c.fillStyle = '#2a2018'; c.strokeStyle = '#c89b66'; c.beginPath(); c.rect(X(-17), Y(L.nut), 34 * k, 40 * k); c.fill();
+c.beginPath(); c.moveTo(X(-22), Y(L.nut)); c.lineTo(X(-26), Y(L.pegboxTop)); c.lineTo(X(26), Y(L.pegboxTop)); c.lineTo(X(22), Y(L.nut)); c.closePath(); c.fill(); c.stroke();
+c.beginPath(); c.arc(X(0), Y(L.pegboxTop - 28), 32 * k, 0, 7); c.fill(); c.stroke();
+// fingerboard
+c.fillStyle = '#05070a'; c.beginPath(); c.moveTo(X(-SPEC.fbWidthNut.v / 2), Y(L.nut)); c.lineTo(X(SPEC.fbWidthNut.v / 2), Y(L.nut)); c.lineTo(X(SPEC.fbWidthEnd.v / 2), Y(L.fbEnd)); c.lineTo(X(-SPEC.fbWidthEnd.v / 2), Y(L.fbEnd)); c.closePath(); c.fill();
+// strings
+c.strokeStyle = '#d9dee4'; c.lineWidth = 1.2; L.strings.forEach(s => { c.beginPath(); c.moveTo(X(s.nut[0]), Y(s.nut[1])); c.lineTo(X(s.bridge[0]), Y(s.bridge[1])); c.stroke(); });
+// bridge
+c.strokeStyle = '#e6c9a0'; c.lineWidth = 3; c.beginPath(); c.moveTo(X(-SPEC.bridgeFoot.v / 2), Y(L.bridgeY)); c.lineTo(X(SPEC.bridgeFoot.v / 2), Y(L.bridgeY)); c.stroke();
+// endpin
+c.strokeStyle = '#8fa1b2'; c.lineWidth = 3; c.beginPath(); c.moveTo(X(0), Y(L.endpinY)); c.lineTo(X(0), Y(L.endpinY + 220)); c.stroke();
+// dimension marks
+const mark = (y, label, x0 = -250) => { c.strokeStyle = '#4ade80'; c.lineWidth = 1; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(X(x0), Y(y)); c.lineTo(X(250), Y(y)); c.stroke(); c.setLineDash([]); c.fillStyle = '#4ade80'; c.font = '13px system-ui'; c.fillText(label, X(250) + 6, Y(y) + 4); };
+mark(L.nut, 'nut'); mark(0, 'top of body'); mark(L.bridgeY, 'bridge, stop ' + SPEC.stop.v); mark(SPEC.bodyLength.v, 'bottom, body ' + SPEC.bodyLength.v);
+c.fillStyle = '#4ade80'; c.font = '13px system-ui'; c.textAlign = 'right';
+c.fillText('string length ' + SPEC.stringLength.v + ' (nut to bridge)', X(-40), Y(L.nut + 110));
+c.textAlign = 'left';
+// table
+const tb = document.querySelector('#tb tbody');
+for (const [name, e] of Object.entries(SPEC)) tb.insertAdjacentHTML('beforeend', `<tr><td>${name}${e.note ? '<br><span style="color:#9fb0c0">' + e.note + '</span>' : ''}</td><td>${e.v}</td><td>${e.seen[0] === e.seen[1] ? e.seen[0] : e.seen[0] + ' to ' + e.seen[1]}</td><td class="${e.status === 'verified' ? 'ok' : 'est'}">${e.status}</td></tr>`);
+tb.insertAdjacentHTML('beforeend', '<tr><td>positions of widest points, corners, waist, curve shape, f-holes, scroll</td><td>estimated</td><td>no open source found</td><td class="est">estimate</td></tr>');
+</script></body></html>
