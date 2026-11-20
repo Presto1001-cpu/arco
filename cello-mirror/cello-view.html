@@ -4,18 +4,25 @@
 body{margin:0;background:#0f1419;color:#e6ecf2;font:15px system-ui,sans-serif}
 main{max-width:1100px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:0 0 4px}.note{color:#9fb0c0;font-size:13px;margin:6px 0 12px}
+button{background:#1f2a35;color:#e6ecf2;border:1px solid #34475a;border-radius:8px;padding:9px 14px;font:inherit}button:active{background:#2b3b4b}
 canvas{width:100%;background:#0b0f13;border:1px solid #26313c;border-radius:8px}
 table{border-collapse:collapse;width:100%;margin-top:14px;font-size:13px}td,th{border-bottom:1px solid #26313c;padding:5px 8px;text-align:left}
 .ok{color:#4ade80}.est{color:#fbbf24}
 </style></head><body><main>
 <h1>Full-size cello, drawn to scale</h1>
 <div class="note">1:1 proportions in millimetres. Lengths and widths below are the middle of what makers and museums publish. The shape <b>between</b> the widest points is an estimate, not a trace of a real cello. The grid is 100 mm.</div>
-<canvas id="cv" width="1000" height="1350"></canvas>
+<div id="bar" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 10px">
+<button id="micBtn">Listen with the microphone</button><button id="stopBtn" style="display:none">Stop</button>
+<label>Tuning A4 <input id="a4" type="number" min="410" max="450" value="440" style="width:64px"></label>
+<span id="readout" style="font-weight:600">Tap the fingerboard or a string to hear it. Or play your cello.</span></div>
+<canvas id="cv" width="1000" height="1350" style="touch-action:none"></canvas>
 <table id="tb"><thead><tr><th>Dimension</th><th>Used (mm)</th><th>Seen in sources</th><th>Status</th></tr></thead><tbody></tbody></table>
 </main>
 <script type="module">
 import { SPEC, layout, drawCello } from './cello-geometry.mjs';
-const cv = document.getElementById('cv'), c = cv.getContext('2d'), L = layout(SPEC);
+import { CELLO_STRINGS, freqToNote, mmFromFreq, freqFromMm, stringFor, yin, makeVoice } from './cello-sound.mjs';
+const cv = document.getElementById('cv'), live = cv.getContext('2d'), L = layout(SPEC);
+const base = document.createElement('canvas'); base.width = cv.width; base.height = cv.height; const c = base.getContext('2d');
 const top = L.pegboxTop - 70, bottom = SPEC.bodyLength.v + 260, k = (cv.height - 60) / (bottom - top), cx = cv.width * 0.5;
 const X = x => cx + x * k, Y = y => 30 + (y - top) * k;
 c.fillStyle = '#0b0f13'; c.fillRect(0, 0, cv.width, cv.height);
@@ -35,6 +42,56 @@ mark(L.nut, 'nut'); mark(0, 'top of body'); mark(L.bridgeY, 'bridge, stop ' + SP
 c.fillStyle = '#4ade80'; c.font = '13px system-ui'; c.textAlign = 'right';
 c.fillText('string length ' + SPEC.stringLength.v + ' (nut to bridge)', X(-40), Y(L.nut + 110));
 c.textAlign = 'left';
+live.drawImage(base, 0, 0);
+// ---- sound: tap to play, or listen to the microphone and show where the finger must be ----
+const SL = SPEC.stringLength.v, $ = id => document.getElementById(id), ro = $('readout');
+let state = { str: -1, mm: 0, freq: 0, cents: 0, vib: 0, on: false, src: '' }, ctx = null, voice = null, stream = null, an = null, raf = 0;
+const a4 = () => +$('a4').value || 440;
+const stringXAt = (st, y) => { const s = L.strings[st], t = (y - s.nut[1]) / (s.bridge[1] - s.nut[1]); return s.nut[0] + (s.bridge[0] - s.nut[0]) * t; };
+const draw = () => {
+  live.drawImage(base, 0, 0);
+  if (state.on && state.str >= 0) {
+    const st = L.strings[state.str], yf = L.nut + state.mm, xf = stringXAt(state.str, yf), amp = 3 + 2.5 * Math.sin(performance.now() / 40) * state.vib;
+    // sounding part: nut side is stopped by the finger, so only the bridge side vibrates; draw it as a bright wobbling line
+    live.strokeStyle = '#ffd166'; live.lineWidth = Math.max(2, 2.6 * k); live.beginPath();
+    for (let i = 0; i <= 40; i++) { const t = i / 40, y = yf + (st.bridge[1] - yf) * t, x = stringXAt(state.str, y) + Math.sin(Math.PI * t) * amp * Math.sin(performance.now() / 9 + t) * 1.0; i ? live.lineTo(X(x), Y(y)) : live.moveTo(X(x), Y(y)); } live.stroke();
+    live.fillStyle = '#4ade80'; live.beginPath(); live.arc(X(xf), Y(yf), 9 * k, 0, 7); live.fill(); live.strokeStyle = '#0b0f13'; live.lineWidth = 2; live.stroke();
+    live.fillStyle = '#e6ecf2'; live.font = 'bold 15px system-ui'; live.textAlign = 'left'; live.fillText(Math.round(state.mm) + ' mm from the nut', X(xf) + 22, Y(yf) + 5);
+  }
+  raf = requestAnimationFrame(draw);
+};
+const show = () => {
+  if (!state.on) return; const n = freqToNote(state.freq, a4()), semis = 12 * Math.log2(state.freq / (CELLO_STRINGS[state.str][1] * a4() / 440));
+  ro.textContent = `${n.name}  ${state.freq.toFixed(1)} Hz  ${n.cents >= 0 ? '+' : ''}${n.cents.toFixed(0)} cents  ·  ${CELLO_STRINGS[state.str][0]} string, ${semis < 0.2 ? 'open' : semis.toFixed(1) + ' semitones up'}  ·  finger ${Math.round(state.mm)} mm from the nut` + (state.src === 'mic' ? '  ·  from the microphone' : '');
+};
+const ensureCtx = () => { if (!ctx) { ctx = new (window.AudioContext || window.webkitAudioContext)(); voice = makeVoice(ctx); } if (ctx.state === 'suspended') ctx.resume(); };
+// which string is nearest to a click, in millimetres across the fingerboard at that height
+const pick = (ev) => {
+  const r = cv.getBoundingClientRect(), px = (ev.clientX - r.left) * cv.width / r.width, py = (ev.clientY - r.top) * cv.height / r.height, ymm = (py - 30) / k + top, xmm = (px - cx) / k;
+  if (ymm < L.nut - 5 || ymm > L.bridgeY) return null;
+  let best = 0, bd = 1e9; L.strings.forEach((_, i) => { const d = Math.abs(stringXAt(i, ymm) - xmm); if (d < bd) { bd = d; best = i; } });
+  const mm = Math.max(0, Math.min(ymm - L.nut, SL * 0.72)); return { str: best, mm: ymm < L.nut + 4 ? 0 : mm };
+};
+const play = (p) => { ensureCtx(); stopMic(); const f = freqFromMm(p.mm, p.str, SL, a4()); state = { str: p.str, mm: p.mm, freq: f, vib: p.mm > 8 ? 1 : 0.3, on: true, src: 'tap' }; voice.on(f); show(); };
+let down = false;
+cv.addEventListener('pointerdown', e => { const p = pick(e); if (p) { down = true; cv.setPointerCapture(e.pointerId); play(p); } });
+cv.addEventListener('pointermove', e => { if (!down) return; const p = pick(e); if (p) play(p); });
+const release = () => { if (!down) return; down = false; voice && voice.off(); state.on = false; ro.textContent = 'Tap the fingerboard or a string to hear it. Or play your cello.'; };
+cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
+function stopMic() { if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; } clearInterval(an); an = null; $('stopBtn').style.display = 'none'; $('micBtn').style.display = ''; if (state.src === 'mic') { state.on = false; ro.textContent = 'Tap the fingerboard or a string to hear it. Or play your cello.'; } }
+$('stopBtn').onclick = stopMic;
+$('micBtn').onclick = async () => {
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }); } catch (e) { ro.textContent = 'The microphone is not available: ' + e.message; return; }
+  ensureCtx(); voice.off(); const src = ctx.createMediaStreamSource(stream), node = ctx.createAnalyser(); node.fftSize = 4096; src.connect(node); const buf = new Float32Array(node.fftSize);
+  $('micBtn').style.display = 'none'; $('stopBtn').style.display = ''; ro.textContent = 'Listening. Play a note.'; let hold = 0, med = [];
+  an = setInterval(() => {
+    node.getFloatTimeDomainData(buf); const r = yin(buf, ctx.sampleRate, 60, 700);
+    if (r.freq && r.prob > 0.8) { med.push(r.freq); if (med.length > 5) med.shift(); const f = [...med].sort((a, b) => a - b)[med.length >> 1], si = stringFor(f, a4()); if (si >= 0) { const mm = Math.min(mmFromFreq(f, si, SL, a4()), SL * 0.72); state = { str: si, mm, freq: f, vib: 1, on: true, src: 'mic' }; hold = 0; show(); } }
+    else if (++hold > 6 && state.src === 'mic') { state.on = false; med = []; ro.textContent = 'Listening. Play a note.'; }
+  }, 40);
+};
+window.__cello = { get state() { return state; }, setFromFreq(f) { const si = stringFor(f, a4()); state = { str: si, mm: mmFromFreq(f, si, SL, a4()), freq: f, vib: 1, on: true, src: 'mic' }; show(); } };
+draw();
 // table
 const tb = document.querySelector('#tb tbody');
 for (const [name, e] of Object.entries(SPEC)) tb.insertAdjacentHTML('beforeend', `<tr><td>${name}${e.note ? '<br><span style="color:#9fb0c0">' + e.note + '</span>' : ''}</td><td>${e.v}</td><td>${e.seen[0] === e.seen[1] ? e.seen[0] : e.seen[0] + ' to ' + e.seen[1]}</td><td class="${e.status === 'verified' ? 'ok' : 'est'}">${e.status}</td></tr>`);

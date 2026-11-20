@@ -16,3 +16,4 @@ Edit the Chrome path (`/usr/bin/google-chrome`) in the browser tests if yours di
 - `browser_videotest.py`: Video test tab with "compare with the sound" on, using `fixture_scale_video.webm` (a recorded scale) and a fake MediaPipe.
 - `browser_record.py`: record a model arm from steady fake strokes, replay, save to file, reload, open the file, reject a bad file.
 - `cello_geometry.mjs`: outline widths and length equal the spec, nothing overshoots, string length = neck + stop, every value is inside its published range. Run with `node tests/cello_geometry.mjs`.
+- `browser_cello_sound.py` and `sound_roundtrip.mjs`: the cello page. Tapping the fingerboard plays a note and puts the finger marker where the string maths says; the microphone (fed the recorded D major scale) moves the marker through D, E, F#, G, A, B, C#, D.
