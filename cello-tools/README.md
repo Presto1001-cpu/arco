@@ -31,3 +31,10 @@ Never commit footage to this public repository. Manifests and label files contai
 
 `cello_hand_benchmark.ipynb` runs MediaPipe and RTMW side by side in Google Colab:
 https://colab.research.google.com/github/Presto1001-cpu/arco/blob/main/cello-tools/cello_hand_benchmark.ipynb
+
+## audio_vision.py: sound against sight
+Checks whether the fingertip position seen by the camera agrees with the position the pitch implies.
+`python audio_vision.py out/clip_mediapipe_tracking.json clip.wav --hand rightmost` (wav: `ffmpeg -i clip.mov -vn -ac 1 -ar 44100 clip.wav`).
+Reports R² against a shifted-sound control, by speed band. It guesses the string from the pitch, so it is a consistency check, not a measurement.
+Clip 3 result: about 27% against a control of 3%, similar in slow, medium and fast parts.
+The same check is in the app: Video test tab, tick "compare with the sound".

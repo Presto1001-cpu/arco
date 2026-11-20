@@ -200,6 +200,7 @@ td.num{font-variant-numeric:tabular-nums}
       <select id="fpsSel"><option value="15">15 fps</option><option value="30" selected>30 fps</option><option value="60">60 fps</option></select>
     </label>
     <label><input type="checkbox" id="poseChk"> also run body pose</label>
+    <label><input type="checkbox" id="sndChk"> compare with the sound</label>
     <button class="act go" id="runBtn" disabled>Run test</button>
     <button class="act" id="stopBtn" disabled>Stop</button>
   </div>
@@ -210,6 +211,7 @@ td.num{font-variant-numeric:tabular-nums}
   <div id="results" hidden>
     <div class="panel" id="verdictBox"></div>
     <table id="bandTable"></table>
+    <div class="panel" id="sndBox" hidden></div>
     <p class="note">Bands are thirds of the clip ranked by how much the picture changes between frames, so they do not depend on the model. "Unstable" means the finger length jumped sharply from one frame to the next, a sign the model guessed.</p>
     <canvas id="timeline" width="1000" height="90" style="width:100%;height:auto;border:1px solid var(--line);border-radius:8px"></canvas>
     <p class="note">Top strip: green = hand found, red = hand lost. Bars below: how much the picture is moving.</p>
@@ -458,6 +460,37 @@ export function bowPathStats(pts) {
   let tilt = th * 180 / Math.PI; if (tilt > 90) tilt -= 180; if (tilt < -90) tilt += 180;
   const secs = (pts[n - 1].t - pts[0].t) / 1000;
   return { wobble: Math.sqrt(sq / n), length, strokes, perMin: secs > 0 ? strokes * 60 / secs : null, tiltDeg: tilt };
+}
+
+// ---- Sound against sight: does the hand position seen by the camera agree with the position the pitch says? ----
+// Strings are guessed as the highest open string at or below the heard pitch, so this is a consistency check, not a measurement.
+export function stopFromFreq(freq, L = 690, a4 = 440) {
+  let pick = null;
+  for (const [name, f0b] of CELLO_STRINGS) { const f0 = f0b * a4 / 440; if (f0 <= freq * 1.012) pick = [name, f0]; }
+  if (!pick) return null;
+  const semis = 12 * Math.log2(freq / pick[1]);
+  return { string: pick[0], semis, mm: L * (1 - Math.pow(2, -semis / 12)) };
+}
+function fitPlane(X, Y) {                               // least squares Y ~ a*x + b*y + c; returns R squared and rms error
+  const n = X.length; let A = [[0, 0, 0], [0, 0, 0], [0, 0, 0]], B = [0, 0, 0];
+  for (let i = 0; i < n; i++) { const r = [X[i][0], X[i][1], 1]; for (let a = 0; a < 3; a++) { B[a] += r[a] * Y[i]; for (let b = 0; b < 3; b++) A[a][b] += r[a] * r[b]; } }
+  for (let a = 0; a < 3; a++) A[a][a] += 1e-6 * (1 + A[a][a]);
+  const M = A.map((row, i) => [...row, B[i]]);
+  for (let c = 0; c < 3; c++) { let piv = c; for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r; [M[c], M[piv]] = [M[piv], M[c]];
+    for (let r = 0; r < 3; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k]; } }
+  const w = [M[0][3] / M[0][0], M[1][3] / M[1][1], M[2][3] / M[2][2]];
+  const my = Y.reduce((a, b) => a + b, 0) / n; let ssr = 0, sst = 0;
+  for (let i = 0; i < n; i++) { const p = w[0] * X[i][0] + w[1] * X[i][1] + w[2]; ssr += (Y[i] - p) ** 2; sst += (Y[i] - my) ** 2; }
+  return { r2: sst > 0 ? 1 - ssr / sst : 0, rmsMm: Math.sqrt(ssr / n) };
+}
+// samples: [{freq (Hz or null), x, y}] one per analysed frame, x and y in picture units of the fingertip.
+export function soundSightFit(samples, L = 690, a4 = 440) {
+  const rows = []; for (const s of samples) { if (!s || !s.freq || s.x == null) continue; const st = stopFromFreq(s.freq, L, a4); if (st) rows.push({ x: s.x, y: s.y, mm: st.mm }); }
+  if (rows.length < 40) return { n: rows.length, enough: false };
+  const X = rows.map(r => [r.x, r.y]), Y = rows.map(r => r.mm), real = fitPlane(X, Y);
+  const ctrl = [1 / 4, 1 / 2, 3 / 4].map(k => { const sh = Math.floor(rows.length * k); return fitPlane(X, Y.map((_, i) => Y[(i + sh) % rows.length])).r2; });
+  const control = ctrl.reduce((a, b) => a + b, 0) / ctrl.length;
+  return { n: rows.length, enough: true, r2: real.r2, rmsMm: real.rmsMm, control, agrees: real.r2 > control + 0.1 };
 }
 
 export function handShape(h, aspect) {
@@ -1069,7 +1102,8 @@ function main() {
         const shape = handShape(hr.landmarks[best], W / H);
         jump = prevShape ? isJump(prevShape, shape) : null; prevShape = shape;
       } else prevShape = null;
-      frames.push({ i, t: +(i / fps).toFixed(3), motion: motion === null ? null : +motion.toFixed(3), det, conf: +conf.toFixed(3), jump, nHands: (hr.landmarks || []).length });
+      const tipPt = det ? hr.landmarks[best][8] : null;
+      frames.push({ i, t: +(i / fps).toFixed(3), motion: motion === null ? null : +motion.toFixed(3), det, conf: +conf.toFixed(3), jump, nHands: (hr.landmarks || []).length, tip: tipPt ? [+(tipPt.x * W / H).toFixed(4), +tipPt.y.toFixed(4)] : null });
 
       tctx.drawImage(tv, 0, 0, W, H);
       (hr.landmarks || []).forEach(h => drawHand(tctx, h, W, H, det ? COL.green : COL.amber));
@@ -1082,7 +1116,31 @@ function main() {
     msg.textContent = cancel ? 'Stopped early. Showing what was analysed so far.' : 'Done.';
     lastRun = { file: file.name, fps, withPose, poseDetectedPct: withPose ? 100 * poseHits / frames.length : null, frames, summary: summarize(frames) };
     showResults(lastRun);
+    $('sndBox').hidden = true;
+    if ($('sndChk').checked) await soundCheck(lastRun, file);
   };
+
+  async function soundCheck(run, f) {
+    const box = $('sndBox'); box.hidden = false; box.textContent = 'Reading the sound...';
+    try {
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const buf = await ac.decodeAudioData(await f.arrayBuffer()); ac.close();
+      const ch = buf.getChannelData(0), sr = buf.sampleRate, win = 2048, extra = Math.floor(sr / 60);
+      let voiced = 0;
+      run.frames.forEach(fr => {
+        fr.freq = null; const a = Math.floor(fr.t * sr) - win / 2; if (a < 0 || a + win + extra > ch.length) return;
+        const seg = ch.subarray(a, a + win + extra); let e = 0; for (let k = 0; k < seg.length; k += 4) e += seg[k] * seg[k];
+        if (Math.sqrt(e / (seg.length / 4)) < 0.01) return;
+        const r = yin(seg, sr); if (r.freq && r.prob > 0.85) { fr.freq = Math.round(r.freq * 10) / 10; voiced++; }
+      });
+      const fit = soundSightFit(run.frames.map(fr => ({ freq: fr.freq, x: fr.tip ? fr.tip[0] : null, y: fr.tip ? fr.tip[1] : null })), stringMm($('sizeSel').value), +$('a4Sel').value);
+      run.soundSight = fit;
+      box.innerHTML = !fit.enough ? `Heard a pitch in ${voiced} frames, and only ${fit.n} of those also have a hand. That is too few to compare.`
+        : `<b>Sound against sight.</b> ${fit.n} frames have both a pitch and a fingertip. Hand position explains <b class="${fit.agrees ? 'good' : 'poor'}">${(100 * fit.r2).toFixed(0)}%</b> of the pitch-derived finger position (shuffled sound: ${(100 * fit.control).toFixed(0)}%), typical gap ${fit.rmsMm.toFixed(0)} mm. ` +
+          (fit.agrees ? 'The camera and the sound tell a similar story.' : 'No clear agreement. The hand may be the wrong one, the view may not show the neck well, or the model may be guessing.') +
+          '<br><span class="note">A consistency check, not an accuracy measure. It guesses the string from the pitch and assumes the camera sees the fingerboard axis.</span>';
+    } catch (e) { box.textContent = 'Could not read audio from this file: ' + (e.message || e); }
+  }
 
   function showResults(r) {
     const s = r.summary, fast = s.bands[2], slow = s.bands[0];

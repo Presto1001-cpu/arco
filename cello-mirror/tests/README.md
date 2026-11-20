@@ -12,3 +12,5 @@ Run from this folder (needs Node 18+, Python with `playwright`, and Chrome):
 `fixture_d_major_scale.wav` is a synthetic D major scale with the fourth note (G3) 30 cents sharp, used to test exercise mode.
 The browser tests do not test MediaPipe accuracy. That needs real footage (see ../../cello-tools).
 Edit the Chrome path (`/usr/bin/google-chrome`) in the browser tests if yours differs.
+
+- `browser_videotest.py`: Video test tab with "compare with the sound" on, using `fixture_scale_video.webm` (a recorded scale) and a fake MediaPipe.

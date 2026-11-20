@@ -176,3 +176,19 @@ console.log('STRING POSITION TESTS PASSED');
   assert.equal(m.bowPathStats([]), null); assert.equal(m.bowPathStats(line(0, 0, 5)), null);
   console.log('bow path OK');
 }
+// sound against sight
+{
+  const A = m.stopFromFreq(220), D = m.stopFromFreq(293.665), low = m.stopFromFreq(50);
+  assert.equal(A.string, 'A'); assert(A.semis < 1e-9 && A.mm < 1e-6);
+  assert.equal(D.string, 'A'); assert(Math.abs(D.semis - 5) < 0.01 && Math.abs(D.mm - 690 * (1 - 2 ** (-5 / 12))) < 0.5);
+  assert.equal(low, null);
+  assert.equal(m.stopFromFreq(150).string, 'D');
+  let r = 7; const rnd = () => (r = (r * 16807) % 2147483647) / 2147483647 - 0.5;
+  const mk = (noise) => Array.from({ length: 300 }, (_, i) => { const semis = 2 + 8 * (0.5 + 0.5 * Math.sin(i / 17)); const f = 220 * 2 ** (semis / 12), mm = 690 * (1 - 2 ** (-semis / 12));
+    return { freq: f, x: 0.2 + 0.001 * mm + noise * rnd(), y: 0.5 + 0.1 * Math.sin(i / 3) + noise * rnd() }; });
+  const good = m.soundSightFit(mk(0.005)); assert(good.enough && good.r2 > 0.9 && good.agrees && good.control < 0.5, JSON.stringify(good));
+  const noisy = m.soundSightFit(mk(3)); assert(noisy.r2 < 0.2 && !noisy.agrees, JSON.stringify(noisy));
+  assert.equal(m.soundSightFit(mk(0.01).slice(0, 10)).enough, false);
+  assert.equal(m.soundSightFit([{ freq: null, x: 1, y: 1 }]).enough, false);
+  console.log('sound against sight OK');
+}
