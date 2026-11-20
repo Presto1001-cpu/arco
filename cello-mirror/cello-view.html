@@ -14,7 +14,7 @@ table{border-collapse:collapse;width:100%;margin-top:14px;font-size:13px}td,th{b
 <table id="tb"><thead><tr><th>Dimension</th><th>Used (mm)</th><th>Seen in sources</th><th>Status</th></tr></thead><tbody></tbody></table>
 </main>
 <script type="module">
-import { SPEC, outline, layout, neckLength } from './cello-geometry.mjs';
+import { SPEC, layout, drawCello } from './cello-geometry.mjs';
 const cv = document.getElementById('cv'), c = cv.getContext('2d'), L = layout(SPEC);
 const top = L.pegboxTop - 70, bottom = SPEC.bodyLength.v + 260, k = (cv.height - 60) / (bottom - top), cx = cv.width * 0.5;
 const X = x => cx + x * k, Y = y => 30 + (y - top) * k;
@@ -23,36 +23,12 @@ c.strokeStyle = '#1c2530'; c.lineWidth = 1; c.fillStyle = '#5d7184'; c.font = '1
 for (let y = Math.ceil(top / 100) * 100; y < bottom; y += 100) { c.beginPath(); c.moveTo(0, Y(y)); c.lineTo(cv.width, Y(y)); c.stroke(); c.fillText(y + ' mm', 6, Y(y) - 3); }
 for (let x = -400; x <= 400; x += 100) { c.beginPath(); c.moveTo(X(x), 0); c.lineTo(X(x), cv.height); c.stroke(); }
 const path = (pts, close) => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(X(x), Y(y)) : c.moveTo(X(x), Y(y))); if (close) c.closePath(); };
-// body
-path(outline(SPEC, 2), true); c.fillStyle = '#3a2a1c'; c.fill(); c.strokeStyle = '#c89b66'; c.lineWidth = 2; c.stroke();
-// neck, pegbox, scroll
-c.fillStyle = '#2a2018'; c.strokeStyle = '#c89b66'; c.beginPath(); c.rect(X(-17), Y(L.nut), 34 * k, 40 * k); c.fill();
-c.beginPath(); c.moveTo(X(-22), Y(L.nut)); c.lineTo(X(-26), Y(L.pegboxTop)); c.lineTo(X(26), Y(L.pegboxTop)); c.lineTo(X(22), Y(L.nut)); c.closePath(); c.fill(); c.stroke();
-c.beginPath(); c.arc(X(0), Y(L.pegboxTop - 28), 32 * k, 0, 7); c.fill(); c.stroke();
-// fingerboard
-c.fillStyle = '#05070a'; c.beginPath(); c.moveTo(X(-SPEC.fbWidthNut.v / 2), Y(L.nut)); c.lineTo(X(SPEC.fbWidthNut.v / 2), Y(L.nut)); c.lineTo(X(SPEC.fbWidthEnd.v / 2), Y(L.fbEnd)); c.lineTo(X(-SPEC.fbWidthEnd.v / 2), Y(L.fbEnd)); c.closePath(); c.fill();
-// strings
-c.strokeStyle = '#d9dee4'; c.lineWidth = 1.2; L.strings.forEach(s => { c.beginPath(); c.moveTo(X(s.nut[0]), Y(s.nut[1])); c.lineTo(X(s.bridge[0]), Y(s.bridge[1])); c.stroke(); });
-// bridge
-c.strokeStyle = '#e6c9a0'; c.lineWidth = 3; c.beginPath(); c.moveTo(X(-SPEC.bridgeFoot.v / 2), Y(L.bridgeY)); c.lineTo(X(SPEC.bridgeFoot.v / 2), Y(L.bridgeY)); c.stroke();
-// tailpiece, tail gut, f-holes (shapes and sizes are estimates)
-const tp0 = L.bridgeY + SPEC.afterLength.v, tp1 = tp0 + SPEC.tailpiece.v;
-c.fillStyle = '#17110c'; c.strokeStyle = '#8a6b46'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(X(-27), Y(tp0)); c.lineTo(X(27), Y(tp0)); c.lineTo(X(15), Y(tp1)); c.lineTo(X(-15), Y(tp1)); c.closePath(); c.fill(); c.stroke();
-c.strokeStyle = '#8a6b46'; c.beginPath(); c.moveTo(X(0), Y(tp1)); c.lineTo(X(0), Y(SPEC.bodyLength.v)); c.stroke();
-c.strokeStyle = '#1b130c'; c.lineWidth = 3.5; c.lineCap = 'round';
-for (const sg of [-1, 1]) { c.beginPath(); c.moveTo(X(sg * 74), Y(L.bridgeY - 62)); c.bezierCurveTo(X(sg * 60), Y(L.bridgeY - 20), X(sg * 58), Y(L.bridgeY + 25), X(sg * 70), Y(L.bridgeY + 62)); c.stroke();
-  c.beginPath(); c.arc(X(sg * 80), Y(L.bridgeY - 62), 4.5 * k, 0, 7); c.stroke(); c.beginPath(); c.arc(X(sg * 80), Y(L.bridgeY + 62), 5.5 * k, 0, 7); c.stroke(); }
-c.lineCap = 'butt';
-// pegs
-c.fillStyle = '#3a2a1c'; c.strokeStyle = '#c89b66'; c.lineWidth = 1.5;
-[[-1, L.pegboxTop + 40], [-1, L.pegboxTop + 80], [1, L.pegboxTop + 55], [1, L.pegboxTop + 95]].forEach(([sg, y]) => { c.beginPath(); c.moveTo(X(sg * 24), Y(y)); c.lineTo(X(sg * 50), Y(y)); c.stroke(); c.beginPath(); c.ellipse(X(sg * 58), Y(y), 11 * k, 17 * k, 0, 0, 7); c.fill(); c.stroke(); });
+drawCello(c, SPEC, cx, Y(0), k);
 // bow, leaning beside the cello (720 mm; frog and tip are drawn, hair length is an estimate)
 const bx = 470, by0 = SPEC.bodyLength.v + 130, by1 = by0 - SPEC.bowLength.v;
 c.strokeStyle = '#d9c8a8'; c.lineWidth = 3; c.beginPath(); c.moveTo(X(bx), Y(by0)); c.lineTo(X(bx + 22), Y(by1)); c.stroke();
 c.strokeStyle = '#efe6d4'; c.lineWidth = 2; c.beginPath(); c.moveTo(X(bx - 14), Y(by0 - 95)); c.lineTo(X(bx + 21), Y(by1 + 8)); c.stroke();
 c.fillStyle = '#17110c'; c.fillRect(X(bx - 14), Y(by0 - 100), 22 * k, 100 * k);
-// endpin
-c.strokeStyle = '#8fa1b2'; c.lineWidth = 3; c.beginPath(); c.moveTo(X(0), Y(L.endpinY)); c.lineTo(X(0), Y(L.endpinY + 220)); c.stroke();
 // dimension marks
 const mark = (y, label, x0 = -250) => { c.strokeStyle = '#4ade80'; c.lineWidth = 1; c.setLineDash([4, 4]); c.beginPath(); c.moveTo(X(x0), Y(y)); c.lineTo(X(250), Y(y)); c.stroke(); c.setLineDash([]); c.fillStyle = '#4ade80'; c.font = '13px system-ui'; c.fillText(label, X(250) + 6, Y(y) + 4); };
 mark(L.nut, 'nut'); mark(0, 'top of body'); mark(L.bridgeY, 'bridge, stop ' + SPEC.stop.v); mark(SPEC.bodyLength.v, 'bottom, body ' + SPEC.bodyLength.v);

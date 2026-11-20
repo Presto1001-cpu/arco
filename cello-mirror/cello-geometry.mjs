@@ -26,8 +26,8 @@ export const neckLength = s => s.stringLength.v - s.stop.v;           // nut to 
 export function stations(s) {
   const L = s.bodyLength.v, U = s.upperBout.v / 2, C = s.middleBout.v / 2, B = s.lowerBout.v / 2, k = L / 756;
   // Landmark positions (fractions of body length) were checked against a front-view drawing of a cello: upper bout widest ~0.19, upper corners ~0.32, waist ~0.415, lower corners ~0.575, lower bout widest ~0.78. The curves between them are my own.
-  return [[0, 0], [6, 0.222 * U], [18, 0.42 * U], [38, 0.62 * U], [65, 0.80 * U], [100, 0.94 * U], [144, U], [185, 0.975 * U], [225, 0.91 * U], [255, 0.80 * U], [285, 0.72 * U], [314, C],
-    [350, 1.03 * C], [390, 1.10 * C], [410, 1.22 * C], [435, 0.78 * B], [480, 0.88 * B], [530, 0.95 * B], [590, B], [640, 0.965 * B], [690, 0.84 * B], [725, 0.62 * B], [745, 0.35 * B], [752, 0.18 * B], [756, 0]]
+  return [[0, 0], [5, 0.20 * U], [16, 0.40 * U], [36, 0.60 * U], [62, 0.79 * U], [98, 0.935 * U], [140, U], [180, 0.985 * U], [214, 0.95 * U], [236, 0.915 * U], [250, 0.84 * U], [268, 0.76 * U], [292, 0.70 * U], [314, C],
+    [345, 1.02 * C], [380, 1.08 * C], [404, 1.17 * C], [422, 1.40 * C], [436, 0.80 * B], [462, 0.855 * B], [500, 0.915 * B], [545, 0.965 * B], [590, B], [640, 0.965 * B], [690, 0.84 * B], [725, 0.62 * B], [745, 0.35 * B], [752, 0.18 * B], [756, 0]]
     .map(([y, w]) => [y * k, w]);
 }
 // Monotone cubic (no overshoot), so the stated widths are the true maxima.
@@ -50,3 +50,61 @@ export function layout(s) {
     return { name: 'CGDA'[i], nut: [u * s.stringSpanNut.v, nut], bridge: [u * s.stringSpanBridge.v, s.stop.v] }; });
   return { nut, fbEnd, strings, bridgeY: s.stop.v, pegboxTop: nut - s.pegbox.v, endpinY: L };
 }
+
+// Offsets a closed outline inwards by d (mm), along averaged normals.
+export function inset(pts, d) {
+  const n = pts.length; return pts.map((p, i) => { const a = pts[(i - 1 + n) % n], b = pts[(i + 1) % n]; let tx = b[0] - a[0], ty = b[1] - a[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
+    // outline runs down the right side, so the inward normal is (+ty, -tx) turned toward the centre line
+    let nx = -ty, ny = tx; if (nx * p[0] > 0) { nx = -nx; ny = -ny; } return [p[0] + nx * d, p[1] + ny * d]; });
+}
+// Draws the cello on a 2D canvas context. (x0, y0) is where the centre line meets the top edge of the body, in pixels; k is pixels per millimetre.
+export function drawCello(c, s, x0, y0, k) {
+  const L = layout(s), X = x => x0 + x * k, Y = y => y0 + y * k, u = k / 0.85;
+  const line = (pts, close) => { c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(X(x), Y(y)) : c.moveTo(X(x), Y(y))); if (close) c.closePath(); };
+  const out = outline(s, 2); c.save(); c.lineCap = 'butt'; c.lineJoin = 'round';
+  // body: edge, then top plate with a soft varnish gradient, then purfling
+  line(out, true); c.fillStyle = '#2a1a0e'; c.fill();
+  const g = c.createRadialGradient(X(-60), Y(s.bodyLength.v * 0.62), 10 * k, X(0), Y(s.bodyLength.v * 0.5), 330 * k); g.addColorStop(0, '#b9742f'); g.addColorStop(0.55, '#8a4f1f'); g.addColorStop(1, '#4a2a12');
+  line(inset(out, 3), true); c.fillStyle = g; c.fill(); c.strokeStyle = '#d9a566'; c.lineWidth = Math.max(1.5, 2 * u); c.stroke();
+  line(inset(out, 11), true); c.strokeStyle = 'rgba(20,12,6,.85)'; c.lineWidth = Math.max(1, 1.6 * u); c.stroke();
+  // neck, pegbox with open slot, scroll
+  c.fillStyle = '#6b3d18'; line([[-19, L.nut], [-27, 8], [27, 8], [19, L.nut]], true); c.fill();
+  c.fillStyle = '#7a4520'; c.strokeStyle = '#d9a566'; c.lineWidth = Math.max(1, 1.5 * u);
+  line([[-23, L.nut], [-28, L.pegboxTop], [28, L.pegboxTop], [23, L.nut]], true); c.fill(); c.stroke();
+  c.fillStyle = '#1a0f07'; line([[-9, L.nut - 6], [-11, L.pegboxTop + 14], [11, L.pegboxTop + 14], [9, L.nut - 6]], true); c.fill();
+  const sc = [0, L.pegboxTop - 30]; c.fillStyle = '#7a4520'; c.beginPath(); c.arc(X(sc[0]), Y(sc[1]), 33 * k, 0, 7); c.fill(); c.stroke();
+  c.strokeStyle = '#2a1a0e'; c.lineWidth = Math.max(1, 2 * u); c.beginPath(); for (let t = 0; t <= 4.2 * Math.PI; t += 0.1) { const r = (2 + 1.9 * t), x = sc[0] + Math.cos(t + 1) * r * 0.9, y = sc[1] + Math.sin(t + 1) * r * 0.9; t ? c.lineTo(X(x), Y(y)) : c.moveTo(X(x), Y(y)); } c.stroke();
+  // pegs
+  c.strokeStyle = '#d9a566'; c.fillStyle = '#2a1a0e'; c.lineWidth = Math.max(1, 1.5 * u);
+  [[-1, L.pegboxTop + 38], [-1, L.pegboxTop + 78], [1, L.pegboxTop + 58], [1, L.pegboxTop + 98]].forEach(([sg, y]) => { c.beginPath(); c.moveTo(X(sg * 24), Y(y)); c.lineTo(X(sg * 46), Y(y)); c.stroke(); c.beginPath(); c.ellipse(X(sg * 58), Y(y), 12 * k, 18 * k, 0, 0, 7); c.fill(); c.stroke(); });
+  // fingerboard, ebony, with highlight
+  c.fillStyle = '#0b0b0d'; line([[-s.fbWidthNut.v / 2, L.nut], [s.fbWidthNut.v / 2, L.nut], [s.fbWidthEnd.v / 2, L.fbEnd], [-s.fbWidthEnd.v / 2, L.fbEnd]], true); c.fill();
+  c.strokeStyle = 'rgba(255,255,255,.10)'; c.lineWidth = Math.max(1, 1.2 * u); line([[-s.fbWidthNut.v / 2 + 2, L.nut], [-s.fbWidthEnd.v / 2 + 2, L.fbEnd]]); c.stroke();
+  // tailpiece with fine-tuner holes, tail gut to the endpin button
+  const tp0 = L.bridgeY + s.afterLength.v, tp1 = tp0 + s.tailpiece.v;
+  c.fillStyle = '#16100b'; c.strokeStyle = '#6f5535'; c.lineWidth = Math.max(1, 1.5 * u);
+  c.beginPath(); c.moveTo(X(-25), Y(tp0)); c.lineTo(X(25), Y(tp0)); c.quadraticCurveTo(X(26), Y(tp0 + 40), X(15), Y(tp1 - 14)); c.quadraticCurveTo(X(0), Y(tp1 + 8), X(-15), Y(tp1 - 14)); c.quadraticCurveTo(X(-26), Y(tp0 + 40), X(-25), Y(tp0)); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#8f8f96'; L.strings.forEach(st => { c.beginPath(); c.arc(X(st.bridge[0] * 0.4), Y(tp0 + 10), 3.2 * k, 0, 7); c.fill(); });
+  c.strokeStyle = '#6f5535'; c.lineWidth = Math.max(1, 2 * u); line([[0, tp1], [0, s.bodyLength.v - 4]]); c.stroke();
+  c.fillStyle = '#16100b'; c.beginPath(); c.arc(X(0), Y(s.bodyLength.v - 4), 7 * k, 0, 7); c.fill();
+  // f-holes: S-curve with an eye at each end
+  c.strokeStyle = '#120a05'; c.fillStyle = '#120a05'; c.lineCap = 'round';
+  for (const sg of [-1, 1]) {
+    const ft = L.bridgeY - 64, fb = L.bridgeY + 64;
+    c.lineWidth = Math.max(2, 5 * u); c.beginPath(); c.moveTo(X(sg * 70), Y(ft + 8)); c.bezierCurveTo(X(sg * 56), Y(ft + 40), X(sg * 54), Y(L.bridgeY - 4), X(sg * 58), Y(L.bridgeY + 8)); c.bezierCurveTo(X(sg * 62), Y(L.bridgeY + 24), X(sg * 78), Y(fb - 22), X(sg * 70), Y(fb - 6)); c.stroke();
+    c.beginPath(); c.arc(X(sg * 78), Y(ft), 5.5 * k, 0, 7); c.fill(); c.beginPath(); c.arc(X(sg * 72), Y(fb + 4), 7 * k, 0, 7); c.fill();
+    c.fillStyle = '#6b3d18'; c.beginPath(); c.arc(X(sg * 61), Y(L.bridgeY), 2 * k, 0, 7); c.fill(); c.fillStyle = '#120a05';
+  }
+  c.lineCap = 'butt';
+  // strings
+  const cols = ['#cfd6dc', '#cfd6dc', '#e3e6e9', '#f0f2f4']; c.lineWidth = Math.max(0.8, 1.4 * u);
+  L.strings.forEach((st, i) => { c.strokeStyle = cols[i]; c.beginPath(); c.moveTo(X(st.nut[0]), Y(st.nut[1])); c.lineTo(X(st.bridge[0]), Y(st.bridge[1])); c.lineTo(X(st.bridge[0] * 0.4), Y(tp0 + 10)); c.stroke(); });
+  // bridge, seen face-on: arched top, two feet
+  c.fillStyle = '#e8cf9f'; c.strokeStyle = '#8a6b46'; c.lineWidth = Math.max(1, 1.2 * u);
+  c.beginPath(); c.moveTo(X(-45), Y(L.bridgeY + 8)); c.lineTo(X(-45), Y(L.bridgeY - 1)); c.quadraticCurveTo(X(0), Y(L.bridgeY - 14), X(45), Y(L.bridgeY - 1)); c.lineTo(X(45), Y(L.bridgeY + 8)); c.lineTo(X(30), Y(L.bridgeY + 8)); c.quadraticCurveTo(X(0), Y(L.bridgeY - 4), X(-30), Y(L.bridgeY + 8)); c.closePath(); c.fill(); c.stroke();
+  // endpin
+  c.strokeStyle = '#9aa7b3'; c.lineWidth = Math.max(2, 4 * u); line([[0, s.bodyLength.v], [0, s.bodyLength.v + 220]]); c.stroke();
+  c.restore();
+}
+// The bow lane: halfway between the end of the fingerboard and the bridge (bow square to the strings).
+export const bowLaneY = s => { const L = layout(s); return (L.fbEnd + L.bridgeY) / 2; };
