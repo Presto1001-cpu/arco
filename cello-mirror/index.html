@@ -201,6 +201,18 @@ td.num{font-variant-numeric:tabular-nums}
   <div class="panel">
     <b>Feasibility test.</b> Load a clip of the left hand (side view, highest frame rate your phone allows). The page steps through it frame by frame, runs the hand model, and reports how often it finds the hand while the picture is slow, medium and fast moving.
   </div>
+  <div class="panel" id="clipRec">
+    <b>Record a clip here.</b> Pick the camera, press the green button, play, then press the red button. The clip stays in this page; you can save it to your phone or analyse it right away.
+    <div class="bar" style="margin-top:8px">
+      <select id="clipCam"><option value="user">Front camera</option><option value="environment">Back camera</option></select>
+      <label><input type="checkbox" id="clipMic" checked> with sound</label>
+      <button class="act go" id="clipBtn">Start recording</button>
+      <span id="clipTime" style="font-variant-numeric:tabular-nums"></span>
+    </div>
+    <div class="msg" id="clipMsg"></div>
+    <video id="clipPrev" playsinline muted controls hidden style="width:100%;max-height:60vh;background:#000;border-radius:8px;margin-top:8px"></video>
+    <div class="bar" id="clipAct" hidden style="margin-top:8px"><button class="act go" id="clipAnalyse">Analyse this clip</button><button class="act" id="clipSave">Save to device</button></div>
+  </div>
   <div class="bar">
     <input type="file" id="file" accept="video/*">
     <label>Analyse at
@@ -1262,6 +1274,45 @@ function main() {
   const save = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); };
   $('jsonBtn').onclick = () => lastRun && save('cello-hand-test.json', JSON.stringify(lastRun, null, 1), 'application/json');
   $('csvBtn').onclick = () => lastRun && save('cello-hand-test.csv', 'frame,time_s,motion,hand_found,confidence,unstable,hands\n' + lastRun.frames.map(f => [f.i, f.t, f.motion ?? '', f.det ? 1 : 0, f.conf, f.jump === null ? '' : (f.jump ? 1 : 0), f.nHands].join(',')).join('\n'), 'text/csv');
+  // ---- Record a clip in the page: camera plus microphone, one start/stop button, then save or analyse ----
+  {
+    let rs = null, rec = null, chunks = [], t0 = 0, tick = 0, blob = null, url = '';
+    const cb = $('clipBtn'), msg = $('clipMsg'), prev = $('clipPrev');
+    const ext = t => /mp4/.test(t) ? 'mp4' : 'webm';
+    const finish = () => {
+      clearInterval(tick); if (rs) { rs.getTracks().forEach(t => t.stop()); rs = null; }
+      cb.textContent = 'Start recording'; cb.classList.add('go'); cb.style.background = ''; cb.style.borderColor = '';
+      const type = (rec && rec.mimeType) || 'video/webm'; blob = new Blob(chunks, { type });
+      if (!blob.size) { msg.className = 'msg err'; msg.textContent = 'Nothing was recorded.'; return; }
+      if (url) URL.revokeObjectURL(url); url = URL.createObjectURL(blob);
+      prev.srcObject = null; prev.muted = false; prev.src = url; prev.hidden = false; $('clipAct').hidden = false;
+      msg.className = 'msg'; msg.textContent = `Recorded ${((Date.now() - t0) / 1000).toFixed(0)} s, ${(blob.size / 1048576).toFixed(1)} MB. Check it below, then save or analyse it.`;
+    };
+    cb.onclick = async () => {
+      if (rec && rec.state === 'recording') { rec.stop(); return; }
+      msg.className = 'msg'; msg.textContent = '';
+      if (typeof MediaRecorder === 'undefined') { msg.className = 'msg err'; msg.textContent = 'This browser cannot record video. Film with the phone camera app and load the file below instead.'; return; }
+      if (typeof stopCam === 'function' && running) stopCam();
+      try { rs = await navigator.mediaDevices.getUserMedia({ audio: $('clipMic').checked ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false, video: { facingMode: $('clipCam').value, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } } }); }
+      catch (e) { msg.className = 'msg err'; msg.textContent = 'Camera or microphone not available: ' + e.message; return; }
+      const types = ['video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']; const mt = types.find(t => MediaRecorder.isTypeSupported(t));
+      chunks = []; try { rec = new MediaRecorder(rs, mt ? { mimeType: mt, videoBitsPerSecond: 8e6 } : {}); } catch (e) { msg.className = 'msg err'; msg.textContent = 'Could not start the recorder: ' + e.message; rs.getTracks().forEach(t => t.stop()); return; }
+      rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); }; rec.onstop = finish; rec.onerror = e => { msg.className = 'msg err'; msg.textContent = 'Recording error: ' + (e.error && e.error.message || 'unknown'); };
+      prev.src = ''; prev.srcObject = rs; prev.muted = true; prev.hidden = false; prev.play().catch(() => {}); $('clipAct').hidden = true; blob = null;
+      rec.start(1000); t0 = Date.now(); cb.textContent = 'Stop recording'; cb.classList.remove('go'); cb.style.background = '#e5484d'; cb.style.borderColor = '#e5484d'; cb.style.color = '#fff';
+      tick = setInterval(() => { const sec = Math.floor((Date.now() - t0) / 1000); $('clipTime').textContent = '● ' + String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0'); }, 250);
+      msg.textContent = 'Recording. Press the red button when you are done.';
+    };
+    $('clipSave').onclick = async () => {
+      if (!blob) return; const name = 'cello-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.' + ext(blob.type), f = new File([blob], name, { type: blob.type });
+      try { if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: name }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+      const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    };
+    $('clipAnalyse').onclick = () => {
+      if (!blob) return; const f = new File([blob], 'recorded-clip.' + ext(blob.type), { type: blob.type }), dt = new DataTransfer(); dt.items.add(f);
+      $('file').files = dt.files; $('file').dispatchEvent(new Event('change')); $('testMsg').textContent = 'Recorded clip loaded. Press Run test.'; $('runBtn').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+  }
 }
 
 if (typeof document !== 'undefined') main();

@@ -17,3 +17,4 @@ Edit the Chrome path (`/usr/bin/google-chrome`) in the browser tests if yours di
 - `browser_record.py`: record a model arm from steady fake strokes, replay, save to file, reload, open the file, reject a bad file.
 - `cello_geometry.mjs`: outline widths and length equal the spec, nothing overshoots, string length = neck + stop, every value is inside its published range. Run with `node tests/cello_geometry.mjs`.
 - `browser_cello_sound.py` and `sound_roundtrip.mjs`: the cello page. Tapping the fingerboard plays a note and puts the finger marker where the string maths says; the microphone (fed the recorded D major scale) moves the marker through D, E, F#, G, A, B, C#, D.
+- `browser_clip_record.py`: the recorder in the Video test tab (fake camera and microphone): start, red stop with timer, preview, save to device, load for analysis.
