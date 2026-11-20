@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cello Mirror - prototype v0.1</title>
+<style>
+:root{--bg:#14181d;--panel:#1d232b;--line:#2c3540;--text:#e8edf2;--dim:#9aa6b2;--green:#5bbf8a;--amber:#f0b429;--red:#e5605a;--blue:#6aa9e9}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--line)}
+h1{font-size:18px;margin:0;font-weight:600}
+h1 small{color:var(--dim);font-weight:400;margin-left:6px}
+nav button{background:none;border:1px solid var(--line);color:var(--dim);padding:7px 14px;border-radius:8px;cursor:pointer;margin-left:6px}
+nav button.on{background:var(--panel);color:var(--text);border-color:var(--blue)}
+main{max-width:1000px;margin:0 auto;padding:14px 16px 40px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0}
+button.act,select,input[type=file]{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit}
+button.act{cursor:pointer}
+button.act.go{background:var(--green);color:#0c1a12;border-color:var(--green);font-weight:600}
+button.act:disabled{opacity:.5;cursor:default}
+label{color:var(--dim);display:flex;gap:6px;align-items:center}
+.stage{position:relative;background:#000;border-radius:12px;overflow:hidden;border:1px solid var(--line)}
+.stage canvas{display:block;width:100%;height:auto}
+.badge{position:absolute;left:12px;top:12px;padding:6px 12px;border-radius:999px;background:rgba(20,24,29,.85);font-weight:600}
+.badge.green{color:var(--green)}.badge.amber{color:var(--amber)}.badge.red{color:var(--red)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:12px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat b{display:block;font-size:20px}
+.stat span{color:var(--dim);font-size:12px}
+.msg{margin:10px 0;color:var(--dim)}
+.msg.err{color:var(--red)}
+.hid{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+table{border-collapse:collapse;width:100%;margin-top:10px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-weight:500;font-size:13px}
+.good{color:var(--green)}.shaky{color:var(--amber)}.poor{color:var(--red)}
+progress{width:100%;height:10px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-top:12px}
+.note{font-size:13px;color:var(--dim)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Cello Mirror <small>prototype v0.1</small></h1>
+  <nav><button data-tab="live" class="on">Live mirror</button><button data-tab="test">Video test</button></nav>
+</header>
+<main>
+
+<section id="live">
+  <div class="bar">
+    <button class="act go" id="camBtn">Start camera</button>
+    <select id="camSel" title="Camera"></select>
+    <label>Bow arm
+      <select id="armSel"><option value="right">Right</option><option value="left">Left</option></select>
+    </label>
+    <label>Cello size
+      <select id="sizeSel"><option>4/4</option><option>7/8</option><option>3/4</option><option>1/2</option><option>1/4</option><option>1/8</option></select>
+    </label>
+  </div>
+  <div class="stage">
+    <canvas id="liveCv" width="1280" height="720"></canvas>
+    <div class="badge" id="badge">Camera off</div>
+  </div>
+  <video id="liveVid" class="hid" playsinline muted></video>
+  <div class="bar">
+    <button class="act" id="baseBtn" disabled>Set baseline</button>
+    <span class="note">Sit in your best playing position, bow on the string, then press it. It records your own elbow height.</span>
+  </div>
+  <div class="bar">
+    <label>Tolerance <input type="range" id="tol" min="10" max="40" value="20"></label><span id="tolVal" class="note">0.20 shoulder widths</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="stTime">0:00</b><span>Practice time</span></div>
+    <div class="stat"><b id="stGreen">-</b><span>In good zone</span></div>
+    <div class="stat"><b id="stDrops">0</b><span>Elbow drops</span></div>
+    <div class="stat"><b id="stAngle">-</b><span>Elbow angle</span></div>
+    <div class="stat"><b id="stHands">0</b><span>Hands seen</span></div>
+    <div class="stat"><b id="stFps">-</b><span>Frames / second</span></div>
+  </div>
+  <div class="msg" id="liveMsg"></div>
+  <p class="note">Only numbers are kept, never video. Nothing leaves this page.</p>
+</section>
+
+<section id="test" hidden>
+  <div class="panel">
+    <b>Feasibility test.</b> Load a clip of the left hand (side view, highest frame rate your phone allows). The page steps through it frame by frame, runs the hand model, and reports how often it finds the hand while the picture is slow, medium and fast moving.
+  </div>
+  <div class="bar">
+    <input type="file" id="file" accept="video/*">
+    <label>Analyse at
+      <select id="fpsSel"><option value="15">15 fps</option><option value="30" selected>30 fps</option><option value="60">60 fps</option></select>
+    </label>
+    <label><input type="checkbox" id="poseChk"> also run body pose</label>
+    <button class="act go" id="runBtn" disabled>Run test</button>
+    <button class="act" id="stopBtn" disabled>Stop</button>
+  </div>
+  <progress id="prog" value="0" max="1" hidden></progress>
+  <div class="msg" id="testMsg"></div>
+  <div class="stage"><canvas id="testCv" width="1280" height="720"></canvas></div>
+  <video id="testVid" class="hid" playsinline muted preload="auto"></video>
+  <div id="results" hidden>
+    <div class="panel" id="verdictBox"></div>
+    <table id="bandTable"></table>
+    <p class="note">Bands are thirds of the clip ranked by how much the picture changes between frames, so they do not depend on the model. "Unstable" means the finger length jumped sharply from one frame to the next, a sign the model guessed.</p>
+    <canvas id="timeline" width="1000" height="90" style="width:100%;height:auto;border:1px solid var(--line);border-radius:8px"></canvas>
+    <p class="note">Top strip: green = hand found, red = hand lost. Bars below: how much the picture is moving.</p>
+    <div class="bar"><button class="act" id="jsonBtn">Download JSON</button><button class="act" id="csvBtn">Download CSV</button></div>
+  </div>
+</section>
+
+</main>
+
+<script type="module">
+/* ---------- pure helpers (kept free of the DOM so they can be tested in Node) ---------- */
+export const HAND_LINKS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+
+export function d2(a, b, aspect = 1) { return Math.hypot((a.x - b.x) * aspect, a.y - b.y); }
+
+// Bow-arm geometry from MediaPipe pose landmarks (11/12 shoulders, 13/14 elbows, 15/16 wrists).
+export function elbowMetrics(pose, arm, aspect) {
+  const [s, e, w] = arm === 'left' ? [11, 13, 15] : [12, 14, 16];
+  const S = pose[s], E = pose[e], W = pose[w];
+  if (!S || !E || !W || !pose[11] || !pose[12]) return null;
+  const shoulderW = d2(pose[11], pose[12], aspect);
+  if (shoulderW < 1e-4) return null;
+  const rel = (E.y - S.y) / shoulderW; // positive = elbow below the shoulder
+  const v1 = { x: (S.x - E.x) * aspect, y: S.y - E.y };
+  const v2 = { x: (W.x - E.x) * aspect, y: W.y - E.y };
+  const cos = (v1.x * v2.x + v1.y * v2.y) / ((Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y)) || 1);
+  const angle = Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
+  const vis = Math.min(S.visibility ?? 1, E.visibility ?? 1, W.visibility ?? 1);
+  return { rel, angle, vis, shoulderW };
+}
+
+export function elbowState(rel, base, tol) {
+  if (base == null) return { state: 'none', drop: 0, msg: 'Set a baseline' };
+  const drop = rel - base;
+  if (drop > tol) return { state: 'amber', drop, msg: 'Elbow dropped' };
+  if (drop < -tol) return { state: 'amber', drop, msg: 'Elbow raised' };
+  return { state: 'green', drop, msg: 'Good bow arm' };
+}
+
+export function handShape(h, aspect) {
+  const palm = d2(h[0], h[9], aspect) || 1e-6;
+  return { palm, indexRatio: d2(h[5], h[8], aspect) / palm };
+}
+
+export function isJump(prev, cur) {
+  if (!prev || !cur) return false;
+  const a = cur.indexRatio / prev.indexRatio, b = cur.palm / prev.palm;
+  return a > 1.3 || a < 1 / 1.3 || b > 1.35 || b < 1 / 1.35;
+}
+
+export function motionEnergy(a, b) {
+  let s = 0, n = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    s += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+    n += 3;
+  }
+  return n ? s / n : 0;
+}
+
+export function bandEdges(values) {
+  const v = values.filter(Number.isFinite).sort((x, y) => x - y);
+  if (!v.length) return [0, 0];
+  return [v[Math.floor(v.length / 3)], v[Math.floor(2 * v.length / 3)]];
+}
+export function bandOf(m, edges) { return m < edges[0] ? 0 : (m < edges[1] ? 1 : 2); }
+
+export function summarize(allFrames) {
+  const frames = allFrames.filter(f => f.motion !== null && f.motion !== undefined);
+  const edges = bandEdges(frames.map(f => f.motion));
+  const acc = [0, 1, 2].map(() => ({ n: 0, det: 0, pairs: 0, jumps: 0, conf: 0 }));
+  for (const f of frames) {
+    const b = acc[bandOf(f.motion, edges)];
+    b.n++;
+    if (f.det) {
+      b.det++; b.conf += f.conf;
+      if (f.jump !== null && f.jump !== undefined) { b.pairs++; if (f.jump) b.jumps++; }
+    }
+  }
+  const names = ['Slow', 'Medium', 'Fast'];
+  return {
+    edges,
+    frames: frames.length,
+    detectedPct: frames.length ? 100 * frames.filter(f => f.det).length / frames.length : 0,
+    bands: acc.map((b, i) => ({
+      name: names[i], frames: b.n,
+      detectedPct: b.n ? 100 * b.det / b.n : 0,
+      unstablePct: b.pairs ? 100 * b.jumps / b.pairs : 0,
+      meanConf: b.det ? b.conf / b.det : 0
+    }))
+  };
+}
+export function verdict(pct) { return pct >= 90 ? 'good' : pct >= 70 ? 'shaky' : 'poor'; }
+
+/* ---------- app ---------- */
+const VER = '0.10.14';
+const CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${VER}`;
+const HAND_MODEL = 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const POSE_MODEL = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+const COL = { green: '#5bbf8a', amber: '#f0b429', red: '#e5605a', none: '#6aa9e9' };
+
+function main() {
+  const $ = id => document.getElementById(id);
+  const S = { hands: null, pose: null, lastTs: 0, loading: null, baseline: null, collect: null };
+  const nextTs = ms => (S.lastTs = Math.max(ms, S.lastTs + 1));
+
+  /* models */
+  function ensureModels(onMsg) {
+    if (S.hands && S.pose) return Promise.resolve();
+    if (!S.loading) {
+      S.loading = (async () => {
+        onMsg && onMsg('Loading hand and body models (first time only)...');
+        const vision = await import(`${CDN}/vision_bundle.mjs`);
+        const fileset = await vision.FilesetResolver.forVisionTasks(`${CDN}/wasm`);
+        const make = async (Cls, url, extra) => {
+          for (const delegate of ['GPU', 'CPU']) {
+            try {
+              return await Cls.createFromOptions(fileset, { baseOptions: { modelAssetPath: url, delegate }, runningMode: 'VIDEO', ...extra });
+            } catch (e) { if (delegate === 'CPU') throw e; }
+          }
+        };
+        S.hands = await make(vision.HandLandmarker, HAND_MODEL, { numHands: 2 });
+        S.pose = await make(vision.PoseLandmarker, POSE_MODEL, { numPoses: 1 });
+      })();
+      S.loading.catch(() => { S.loading = null; });
+    }
+    return S.loading;
+  }
+  const loadErr = (el, e) => {
+    el.className = 'msg err';
+    el.textContent = 'Could not load the models: ' + (e && e.message ? e.message : e) +
+      '. This page needs internet access to cdn.jsdelivr.net and storage.googleapis.com. If you opened it as a file, try running "python3 -m http.server" in its folder and open http://localhost:8000.';
+  };
+
+  /* drawing */
+  function drawHand(ctx, h, W, H, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    for (const [a, b] of HAND_LINKS) { ctx.moveTo(h[a].x * W, h[a].y * H); ctx.lineTo(h[b].x * W, h[b].y * H); }
+    ctx.stroke(); ctx.fillStyle = color;
+    for (const p of h) { ctx.beginPath(); ctx.arc(p.x * W, p.y * H, 3, 0, 7); ctx.fill(); }
+  }
+  function drawPose(ctx, p, W, H, color, arm) {
+    const links = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24]];
+    ctx.lineWidth = 3;
+    for (const [a, b] of links) {
+      if (!p[a] || !p[b]) continue;
+      const bow = arm === 'left' ? (a === 11 && b === 13) || (a === 13 && b === 15) : (a === 12 && b === 14) || (a === 14 && b === 16);
+      ctx.strokeStyle = bow ? color : 'rgba(230,236,242,.45)'; ctx.lineWidth = bow ? 5 : 2;
+      ctx.beginPath(); ctx.moveTo(p[a].x * W, p[a].y * H); ctx.lineTo(p[b].x * W, p[b].y * H); ctx.stroke();
+    }
+  }
+
+  /* tabs */
+  document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+    document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
+    $('live').hidden = b.dataset.tab !== 'live';
+    $('test').hidden = b.dataset.tab !== 'test';
+    if (b.dataset.tab !== 'live') stopCam();
+  });
+
+  /* ---------- live mirror ---------- */
+  const vid = $('liveVid'), cv = $('liveCv'), ctx = cv.getContext('2d');
+  let stream = null, running = false, lastVT = -1;
+  const stats = { frames: 0, green: 0, drops: 0, ms: 0, amberRun: 0, flagged: false, t0: 0, fpsN: 0, fpsT: 0, fps: 0, uiT: 0 };
+  let last = { angle: null, hands: 0 };
+
+  try { const b = JSON.parse(localStorage.getItem('cm-baseline') || 'null'); if (b && typeof b.rel === 'number') { S.baseline = b; $('sizeSel').value = b.size || '4/4'; $('armSel').value = b.arm || 'right'; } } catch (e) {}
+
+  const tolVal = () => +$('tol').value / 100;
+  $('tol').oninput = () => { $('tolVal').textContent = tolVal().toFixed(2) + ' shoulder widths'; };
+
+  async function listCams() {
+    try {
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+      const cur = stream && stream.getVideoTracks()[0].getSettings().deviceId;
+      $('camSel').innerHTML = devs.map((d, i) => `<option value="${d.deviceId}">${d.label || 'Camera ' + (i + 1)}</option>`).join('');
+      if (cur) $('camSel').value = cur;
+    } catch (e) {}
+  }
+
+  async function startCam() {
+    const msg = $('liveMsg'); msg.className = 'msg'; msg.textContent = '';
+    $('badge').textContent = 'Loading models...'; $('badge').className = 'badge';
+    try { await ensureModels(t => { msg.textContent = t; }); } catch (e) { loadErr(msg, e); $('badge').textContent = 'Models failed to load'; return; }
+    msg.textContent = '';
+    try {
+      const id = $('camSel').value;
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { deviceId: id ? { exact: id } : undefined, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } } });
+    } catch (e) { msg.className = 'msg err'; msg.textContent = 'Camera not available: ' + e.message; $('badge').textContent = 'Camera off'; return; }
+    vid.srcObject = stream; await vid.play(); await listCams();
+    running = true; lastVT = -1; stats.t0 = performance.now();
+    $('camBtn').textContent = 'Stop camera'; $('camBtn').classList.remove('go'); $('baseBtn').disabled = false;
+    loop();
+  }
+  function stopCam() {
+    running = false;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    $('camBtn').textContent = 'Start camera'; $('camBtn').classList.add('go'); $('baseBtn').disabled = true;
+    $('badge').textContent = 'Camera off'; $('badge').className = 'badge';
+  }
+  $('camBtn').onclick = () => running ? stopCam() : startCam();
+  $('camSel').onchange = () => { if (running) { stopCam(); startCam(); } };
+
+  $('baseBtn').onclick = () => {
+    S.collect = { until: performance.now() + 1500, vals: [] };
+    $('liveMsg').className = 'msg'; $('liveMsg').textContent = 'Hold your position for a moment...';
+  };
+
+  function loop() {
+    if (!running) return;
+    if (vid.readyState >= 2 && vid.currentTime !== lastVT) { lastVT = vid.currentTime; try { liveFrame(); } catch (e) { $('liveMsg').className = 'msg err'; $('liveMsg').textContent = e.message; } }
+    requestAnimationFrame(loop);
+  }
+
+  function liveFrame() {
+    const W = vid.videoWidth, H = vid.videoHeight; if (!W) return;
+    if (cv.width !== W) { cv.width = W; cv.height = H; }
+    const now = performance.now(), ts = nextTs(now);
+    const hr = S.hands.detectForVideo(vid, ts), pr = S.pose.detectForVideo(vid, ts);
+    const arm = $('armSel').value, pose = pr.landmarks && pr.landmarks[0];
+    ctx.save(); ctx.translate(W, 0); ctx.scale(-1, 1); ctx.drawImage(vid, 0, 0, W, H);
+
+    let st = { state: 'none', msg: 'Step back so your shoulders and bow arm are in view' }, em = null;
+    if (pose) {
+      em = elbowMetrics(pose, arm, W / H);
+      if (em && em.vis > 0.4) {
+        if (S.collect) {
+          S.collect.vals.push(em.rel);
+          if (now > S.collect.until) {
+            const v = S.collect.vals; S.collect = null;
+            if (v.length >= 10) {
+              S.baseline = { rel: v.reduce((a, b) => a + b, 0) / v.length, size: $('sizeSel').value, arm };
+              try { localStorage.setItem('cm-baseline', JSON.stringify(S.baseline)); } catch (e) {}
+              $('liveMsg').textContent = 'Baseline saved for cello size ' + S.baseline.size + '.';
+            } else { $('liveMsg').className = 'msg err'; $('liveMsg').textContent = 'Could not see your arm clearly. Try again.'; }
+          }
+        }
+        st = elbowState(em.rel, S.baseline ? S.baseline.rel : null, tolVal());
+        const dt = Math.min(200, now - (stats.prev || now)); stats.prev = now;
+        if (S.baseline) {
+          stats.frames++; stats.ms += dt;
+          if (st.state === 'green') { stats.green++; stats.amberRun = 0; stats.flagged = false; }
+          else if (st.state === 'amber') { stats.amberRun++; if (stats.amberRun >= 8 && !stats.flagged) { stats.drops += st.drop > 0 ? 1 : 0; stats.flagged = true; } }
+        }
+      }
+      drawPose(ctx, pose, W, H, COL[st.state], arm);
+    } else { stats.prev = now; }
+    const hands = hr.landmarks || [];
+    hands.forEach(h => drawHand(ctx, h, W, H, '#6aa9e9'));
+    ctx.restore();
+
+    $('badge').textContent = st.msg; $('badge').className = 'badge ' + (st.state === 'green' ? 'green' : st.state === 'amber' ? 'amber' : '');
+    last = { angle: em ? em.angle : null, hands: hands.length };
+    stats.fpsN++;
+    if (now - stats.fpsT > 1000) { stats.fps = stats.fpsN * 1000 / (now - stats.fpsT); stats.fpsN = 0; stats.fpsT = now; }
+    if (now - stats.uiT > 250) { stats.uiT = now; renderStats(); }
+  }
+  function renderStats() {
+    const s = Math.floor(stats.ms / 1000);
+    $('stTime').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    $('stGreen').textContent = stats.frames ? Math.round(100 * stats.green / stats.frames) + '%' : '-';
+    $('stDrops').textContent = stats.drops;
+    $('stAngle').textContent = last.angle == null ? '-' : Math.round(last.angle) + ' deg';
+    $('stHands').textContent = last.hands;
+    $('stFps').textContent = stats.fps ? stats.fps.toFixed(0) : '-';
+  }
+
+  /* ---------- video test ---------- */
+  const tv = $('testVid'), tcv = $('testCv'), tctx = tcv.getContext('2d');
+  let file = null, cancel = false, busy = false, lastRun = null;
+
+  $('file').onchange = e => { file = e.target.files[0] || null; $('runBtn').disabled = !file; $('results').hidden = true; $('testMsg').className = 'msg'; $('testMsg').textContent = file ? file.name : ''; };
+  $('stopBtn').onclick = () => { cancel = true; };
+
+  const seek = (v, t) => new Promise(res => {
+    if (Math.abs(v.currentTime - t) < 1e-4) return res();
+    let done = false;
+    const fin = () => { if (done) return; done = true; v.removeEventListener('seeked', fin); res(); };
+    v.addEventListener('seeked', fin); v.currentTime = Math.min(t, Math.max(0, v.duration - 0.001)); setTimeout(fin, 1500);
+  });
+
+  $('runBtn').onclick = async () => {
+    if (!file || busy) return;
+    const msg = $('testMsg'); msg.className = 'msg';
+    busy = true; cancel = false; $('runBtn').disabled = true; $('stopBtn').disabled = false; $('results').hidden = true;
+    try {
+      await ensureModels(t => { msg.textContent = t; });
+    } catch (e) { loadErr(msg, e); busy = false; $('runBtn').disabled = false; $('stopBtn').disabled = true; return; }
+    const url = URL.createObjectURL(file);
+    tv.src = url;
+    await new Promise((res, rej) => { tv.onloadedmetadata = res; tv.onerror = () => rej(new Error('This video format could not be opened')); }).catch(e => { msg.className = 'msg err'; msg.textContent = e.message; });
+    if (!tv.duration || !isFinite(tv.duration)) { busy = false; $('runBtn').disabled = false; $('stopBtn').disabled = true; return; }
+
+    const fps = +$('fpsSel').value, total = Math.floor(tv.duration * fps), withPose = $('poseChk').checked;
+    const W = tv.videoWidth, H = tv.videoHeight; tcv.width = W; tcv.height = H;
+    const sc = document.createElement('canvas'); sc.width = 96; sc.height = 54;
+    const sctx = sc.getContext('2d', { willReadFrequently: true });
+    const frames = []; let prevPix = null, prevShape = null, poseHits = 0;
+    $('prog').hidden = false; $('prog').max = total; $('prog').value = 0;
+
+    for (let i = 0; i < total && !cancel; i++) {
+      await seek(tv, i / fps);
+      sctx.drawImage(tv, 0, 0, 96, 54);
+      const pix = sctx.getImageData(0, 0, 96, 54).data;
+      const motion = prevPix ? motionEnergy(prevPix, pix) : null; prevPix = pix;
+      const ts = nextTs(S.lastTs + 1000 / fps);
+      const hr = S.hands.detectForVideo(tv, ts);
+      let pr = null; if (withPose) { pr = S.pose.detectForVideo(tv, ts); if (pr.landmarks && pr.landmarks[0]) poseHits++; }
+
+      let best = -1, conf = 0;
+      (hr.handedness || []).forEach((hd, k) => { if (hd[0] && hd[0].score > conf) { conf = hd[0].score; best = k; } });
+      const det = best >= 0 && !!(hr.landmarks && hr.landmarks[best]);
+      let jump = null;
+      if (det) {
+        const shape = handShape(hr.landmarks[best], W / H);
+        jump = prevShape ? isJump(prevShape, shape) : null; prevShape = shape;
+      } else prevShape = null;
+      frames.push({ i, t: +(i / fps).toFixed(3), motion: motion === null ? null : +motion.toFixed(3), det, conf: +conf.toFixed(3), jump, nHands: (hr.landmarks || []).length });
+
+      tctx.drawImage(tv, 0, 0, W, H);
+      (hr.landmarks || []).forEach(h => drawHand(tctx, h, W, H, det ? COL.green : COL.amber));
+      if (pr && pr.landmarks && pr.landmarks[0]) drawPose(tctx, pr.landmarks[0], W, H, COL.none, 'right');
+      if (i % 4 === 0) { $('prog').value = i; msg.textContent = `Frame ${i + 1} of ${total}`; }
+    }
+    URL.revokeObjectURL(url);
+    $('prog').hidden = true; busy = false; $('runBtn').disabled = false; $('stopBtn').disabled = true;
+    if (frames.length < 6) { msg.textContent = 'Not enough frames analysed.'; return; }
+    msg.textContent = cancel ? 'Stopped early. Showing what was analysed so far.' : 'Done.';
+    lastRun = { file: file.name, fps, withPose, poseDetectedPct: withPose ? 100 * poseHits / frames.length : null, frames, summary: summarize(frames) };
+    showResults(lastRun);
+  };
+
+  function showResults(r) {
+    const s = r.summary, fast = s.bands[2], slow = s.bands[0];
+    const cls = p => verdict(p);
+    $('results').hidden = false;
+    $('verdictBox').innerHTML = `<b>${r.file}</b> at ${r.fps} fps, ${s.frames} frames.<br>` +
+      `Hand found overall in <b>${s.detectedPct.toFixed(0)}%</b> of frames. Slow moments: <b class="${cls(slow.detectedPct)}">${slow.detectedPct.toFixed(0)}%</b>. Fast moments: <b class="${cls(fast.detectedPct)}">${fast.detectedPct.toFixed(0)}%</b>.` +
+      (r.withPose ? `<br>Body found in ${r.poseDetectedPct.toFixed(0)}% of frames.` : '') +
+      `<br><span class="note">Good is 90% or more, shaky 70 to 90, poor below 70. This is a first read, not a final verdict.</span>`;
+    $('bandTable').innerHTML = '<tr><th>Picture motion</th><th>Frames</th><th>Hand found</th><th>Unstable</th><th>Mean confidence</th></tr>' +
+      s.bands.map(b => `<tr><td>${b.name}</td><td>${b.frames}</td><td class="${cls(b.detectedPct)}">${b.detectedPct.toFixed(0)}%</td><td>${b.unstablePct.toFixed(0)}%</td><td>${b.meanConf.toFixed(2)}</td></tr>`).join('');
+    drawTimeline(r.frames);
+  }
+  function drawTimeline(frames) {
+    const c = $('timeline'), g = c.getContext('2d'), n = frames.length, w = c.width, h = c.height;
+    g.fillStyle = '#14181d'; g.fillRect(0, 0, w, h);
+    const maxM = Math.max(1e-6, ...frames.map(f => f.motion || 0)), cw = Math.max(1, w / n);
+    frames.forEach((f, k) => {
+      const x = k * w / n;
+      g.fillStyle = f.det ? COL.green : COL.red; g.fillRect(x, 0, cw, 28);
+      const bh = 58 * (f.motion || 0) / maxM; g.fillStyle = '#6a7683'; g.fillRect(x, h - bh, cw, bh);
+    });
+  }
+
+  const save = (name, text, type) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name; a.click(); };
+  $('jsonBtn').onclick = () => lastRun && save('cello-hand-test.json', JSON.stringify(lastRun, null, 1), 'application/json');
+  $('csvBtn').onclick = () => lastRun && save('cello-hand-test.csv', 'frame,time_s,motion,hand_found,confidence,unstable,hands\n' + lastRun.frames.map(f => [f.i, f.t, f.motion ?? '', f.det ? 1 : 0, f.conf, f.jump === null ? '' : (f.jump ? 1 : 0), f.nHands].join(',')).join('\n'), 'text/csv');
+}
+
+if (typeof document !== 'undefined') main();
+</script>
+</body>
+</html>
