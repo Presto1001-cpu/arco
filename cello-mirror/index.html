@@ -46,7 +46,7 @@ progress{width:100%;height:10px}
 <body>
 <header>
   <h1>Cello Mirror <small>prototype v0.1</small></h1>
-  <nav><button data-tab="live" class="on">Live mirror</button><button data-tab="test">Video test</button></nav>
+  <nav><button data-tab="live" class="on">Live mirror</button><button data-tab="model">Model player</button><button data-tab="test">Video test</button></nav>
 </header>
 <main>
 
@@ -60,6 +60,8 @@ progress{width:100%;height:10px}
     <label>Body model
       <select id="poseSel"><option value="full" selected>Full</option><option value="heavy">Heavy (slowest, most accurate)</option><option value="lite">Lite (fastest)</option></select>
     </label>
+    <label><input type="checkbox" id="ghostOn"> Show model arm</label>
+    <label>Model speed <input type="range" id="ghostSpeed" min="20" max="120" value="40"></label>
     <label>Cello size
       <select id="sizeSel"><option>4/4</option><option>7/8</option><option>3/4</option><option>1/2</option><option>1/4</option><option>1/8</option></select>
     </label>
@@ -104,6 +106,18 @@ progress{width:100%;height:10px}
     <p class="note">Works on its own, without the camera. Measured against standard tuning, not against the note you meant to play. Use a quiet room and one instrument at a time.</p>
   </div>
   <p class="note">Only numbers are kept, never video. Nothing leaves this page.</p>
+</section>
+
+<section id="model" hidden>
+  <div class="bar">
+    <button class="act go" id="mdPlay">Pause</button>
+    <label>Speed <input type="range" id="mdSpeed" min="20" max="120" value="50"> <span id="mdSpeedV">50</span> strokes/min</label>
+    <label>Bow used
+      <select id="mdAmp"><option value="0.9">Whole bow</option><option value="0.6" selected>Middle two thirds</option><option value="0.35">Half</option><option value="0.2">Short</option></select>
+    </label>
+  </div>
+  <div class="stage"><canvas id="mdCv" width="1280" height="720"></canvas></div>
+  <div class="note">The elbow stays at one height and the wrist travels in a straight line. That is the picture to copy. Use "Show model arm" on the Live mirror to put it over your own shoulder.</div>
 </section>
 
 <section id="test" hidden>
@@ -154,7 +168,7 @@ export function elbowMetrics(pose, arm, aspect) {
   const cos = (v1.x * v2.x + v1.y * v2.y) / ((Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y)) || 1);
   const angle = Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
   const vis = Math.min(S.visibility ?? 1, E.visibility ?? 1, W.visibility ?? 1);
-  return { rel, angle, vis, shoulderW };
+  return { rel, angle, vis, shoulderW, upper: d2(S, E, aspect) / shoulderW, fore: d2(E, W, aspect) / shoulderW };
 }
 
 export function elbowState(rel, base, tol) {
@@ -163,6 +177,29 @@ export function elbowState(rel, base, tol) {
   if (drop > tol) return { state: 'amber', drop, msg: 'Elbow dropped' };
   if (drop < -tol) return { state: 'amber', drop, msg: 'Elbow raised' };
   return { state: 'green', drop, msg: 'Good bow arm' };
+}
+
+
+// ---- Model player: a bow arm that moves the way a good one should (units: shoulder widths, x outward from the body, y down) ----
+export const MODEL_DEFAULT = { upper: 0.75, fore: 0.7, drop: 0.9, centre: 0.55, amp: 0.5 };
+
+// Two-link inverse kinematics: shoulder at (0,0), wrist at target; the elbow is the solution that hangs lower.
+export function solveArm(upper, fore, tx, ty) {
+  const reach = Math.hypot(tx, ty) || 1e-6;
+  const d = Math.min(Math.max(reach, Math.abs(upper - fore) + 1e-3), upper + fore - 1e-3);
+  const wx = tx / reach * d, wy = ty / reach * d;
+  const a = Math.acos(Math.max(-1, Math.min(1, (upper * upper + d * d - fore * fore) / (2 * upper * d))));
+  const base = Math.atan2(wy, wx);
+  const c1 = { x: Math.cos(base + a) * upper, y: Math.sin(base + a) * upper };
+  const c2 = { x: Math.cos(base - a) * upper, y: Math.sin(base - a) * upper };
+  return { elbow: c1.y >= c2.y ? c1 : c2, wrist: { x: wx, y: wy } };
+}
+
+// phase 0..1 is one down-bow plus one up-bow. The wrist path is a smooth to-and-fro line at a steady height.
+export function modelArm(m, phase) {
+  const q = (1 - Math.cos(2 * Math.PI * phase)) / 2;       // 0 at the frog, 1 at the tip, smooth turnarounds
+  const x = m.centre - m.amp / 2 + m.amp * q;
+  return { ...solveArm(m.upper, m.fore, x, m.drop), tip: q, down: phase < 0.5 };
 }
 
 export function handShape(h, aspect) {
@@ -335,11 +372,50 @@ function main() {
     }
   }
 
+
+  /* model arm */
+  const GH = {};
+  const MD = { play: true, t0: performance.now(), shown: 0, base: null };
+  function modelFor(lens) { return { ...MODEL_DEFAULT, ...(lens || {}), amp: +$('mdAmp').value }; }
+  function drawModelArm(ctx, m, phase, sx, sy, sw, outSign, color, alpha) {
+    const a = modelArm(m, phase), P = q => [sx + outSign * q.x * sw, sy + q.y * sw];
+    const [ex, ey] = P(a.elbow), [wx, wy] = P(a.wrist);
+    ctx.save(); ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(4, sw * 0.07);
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.lineTo(wx, wy); ctx.stroke();
+    for (const [x, y] of [[sx, sy], [ex, ey], [wx, wy]]) { ctx.beginPath(); ctx.arc(x, y, ctx.lineWidth * 0.9, 0, 7); ctx.fill(); }
+    // the bow, a thin line through the wrist, level with the floor
+    ctx.lineWidth = Math.max(2, sw * 0.02); ctx.globalAlpha = alpha * 0.8;
+    ctx.beginPath(); ctx.moveTo(wx - outSign * sw * 0.2, wy + sw * 0.02); ctx.lineTo(wx + outSign * sw * 1.1, wy + sw * 0.02); ctx.stroke();
+    ctx.restore(); return a;
+  }
+  function modelFrame() {
+    const cv = $('mdCv'), c = cv.getContext('2d'), W = cv.width, H = cv.height, now = performance.now();
+    const bpm = +$('mdSpeed').value; $('mdSpeedV').textContent = bpm;
+    if (MD.play) MD.shown += (now - (MD.last || now)) * bpm / 120000; MD.last = now;
+    const phase = MD.shown % 1;
+    c.fillStyle = '#0f1419'; c.fillRect(0, 0, W, H);
+    const sw = 240, cx = W * 0.6, sy = H * 0.3;
+    c.strokeStyle = 'rgba(230,236,242,.45)'; c.lineWidth = 4;
+    c.beginPath(); c.moveTo(cx - sw / 2, sy); c.lineTo(cx + sw / 2, sy); c.stroke();                    // shoulders
+    c.beginPath(); c.arc(cx, sy - sw * 0.42, sw * 0.2, 0, 7); c.stroke();                               // head
+    c.beginPath(); c.moveTo(cx - sw / 2, sy); c.lineTo(cx - sw * 0.38, sy + sw * 1.5); c.moveTo(cx + sw / 2, sy); c.lineTo(cx + sw * 0.38, sy + sw * 1.5); c.stroke(); // trunk sides
+    // the student is shown from the front, so the player's right arm is on the left of the picture
+    const arm = $('armSel').value, out = arm === 'right' ? -1 : 1, sx = cx + out * sw / 2;
+    const a = drawModelArm(c, modelFor(MD.base), phase, sx, sy, sw, out, '#4ade80', 1);
+    c.fillStyle = '#e6ecf2'; c.font = '28px system-ui,sans-serif'; c.textAlign = 'center';
+    c.fillText(a.down ? 'Down bow  (frog to tip)' : 'Up bow  (tip to frog)', W / 2, H - 40);
+    if (!$('model').hidden) requestAnimationFrame(modelFrame);
+  }
+  $('mdPlay').onclick = () => { MD.play = !MD.play; $('mdPlay').textContent = MD.play ? 'Pause' : 'Play'; };
+
   /* tabs */
   document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
     document.querySelectorAll('nav button').forEach(x => x.classList.toggle('on', x === b));
     $('live').hidden = b.dataset.tab !== 'live';
+    $('model').hidden = b.dataset.tab !== 'model';
     $('test').hidden = b.dataset.tab !== 'test';
+    if (b.dataset.tab === 'model') { MD.last = null; requestAnimationFrame(modelFrame); }
     if (b.dataset.tab !== 'live') { stopCam(); stopMic(); }
   });
 
@@ -421,11 +497,12 @@ function main() {
       em = elbowMetrics(pose, arm, W / H);
       if (em && em.vis > 0.4) {
         if (S.collect) {
-          S.collect.vals.push(em.rel);
+          S.collect.vals.push(em.rel); (S.collect.lens ||= []).push([em.upper, em.fore]);
           if (now > S.collect.until) {
-            const v = S.collect.vals; S.collect = null;
+            const v = S.collect.vals, lens = S.collect.lens || []; S.collect = null;
             if (v.length >= 10) {
-              S.baseline = { rel: v.reduce((a, b) => a + b, 0) / v.length, size: $('sizeSel').value, arm };
+              const mean = i => lens.reduce((a, l) => a + l[i], 0) / lens.length;
+              S.baseline = { rel: v.reduce((a, b) => a + b, 0) / v.length, size: $('sizeSel').value, arm, upper: mean(0), fore: mean(1) };
               try { localStorage.setItem('cm-baseline', JSON.stringify(S.baseline)); } catch (e) {}
               $('liveMsg').textContent = 'Baseline saved for cello size ' + S.baseline.size + '.';
             } else { $('liveMsg').className = 'msg err'; $('liveMsg').textContent = 'Could not see your arm clearly. Try again.'; }
@@ -440,6 +517,12 @@ function main() {
         }
       }
       drawPose(ctx, pose, W, H, COL[st.state], arm);
+      if ($('ghostOn').checked && pose[11] && pose[12]) {
+        const si = arm === 'left' ? 11 : 12, sw = d2(pose[11], pose[12], W / H) * W;
+        const b = S.baseline, lens = b && b.arm === arm && b.upper > 0.3 && b.fore > 0.3 ? { upper: b.upper, fore: b.fore, drop: Math.max(0.5, b.rel + 0.25) } : null;
+        GH.t = (GH.t || 0) + Math.min(100, now - (GH.last || now)) * (+$('ghostSpeed').value) / 120000; GH.last = now;
+        drawModelArm(ctx, { ...MODEL_DEFAULT, ...(lens || {}) }, GH.t % 1, pose[si].x * W, pose[si].y * H, sw, arm === 'left' ? 1 : -1, '#4ade80', 0.55);
+      }
     } else { stats.prev = now; }
     const hands = hr.landmarks || [];
     hands.forEach(h => drawHand(ctx, h, W, H, '#6aa9e9'));
