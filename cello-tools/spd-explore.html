@@ -1,0 +1,51 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SPD explorer</title>
+<style>body{font:15px system-ui;margin:14px;background:#0f1419;color:#e6ecf2}button{font:inherit;padding:10px 14px;border-radius:8px;border:1px solid #34475a;background:#1f2a35;color:#e6ecf2;margin:4px 6px 4px 0}pre{white-space:pre-wrap;word-break:break-word;background:#0b0f13;border:1px solid #24323f;border-radius:8px;padding:10px;font-size:12px}small{color:#9fb0c0}</style></head><body>
+<h2>SPD explorer</h2>
+<p><small>Choose one of the String Performance Dataset zip files from your phone or computer. Nothing is uploaded: the file is read inside this page. It lists what is inside and shows the format of the annotation files.</small></p>
+<input type="file" id="f" accept=".zip,application/zip,application/x-zip-compressed">
+<div id="s"><small>Waiting for a file.</small></div>
+<div><button id="copy" hidden>Copy report</button><button id="share" hidden>Share report</button></div>
+<pre id="out"></pre>
+<script src="vendor/zip.min.js"></script>
+<script>
+zip.configure({useWebWorkers:false});
+const $=id=>document.getElementById(id), rep=[], say=(...a)=>{const s=a.join(' ');rep.push(s);$('out').textContent=rep.join('\n')};
+const ext=n=>{const m=/\.([^./]+)$/.exec(n);return m?m[1].toLowerCase():'(none)'};
+const MB=b=>(b/1e6).toFixed(1);
+function npyInfo(buf){const v=new DataView(buf);if(v.getUint8(0)!==0x93)return 'not npy';const major=v.getUint8(6);const hl=major===1?v.getUint16(8,true):v.getUint32(8,true);const off=major===1?10:12;return new TextDecoder().decode(new Uint8Array(buf,off,hl)).trim()}
+async function run(file){
+  rep.length=0;$('s').textContent='Reading…';
+  say('file',file.name,MB(file.size),'MB');
+  const rd=new zip.ZipReader(new zip.BlobReader(file)); let ents;
+  try{ents=await rd.getEntries()}catch(e){say('Could not read the zip:',e.message);$('s').textContent='Failed';return}
+  const files=ents.filter(e=>!e.directory); say('entries',files.length);
+  const byExt={},byDir={};
+  for(const e of files){const x=ext(e.filename);(byExt[x]=byExt[x]||{n:0,b:0});byExt[x].n++;byExt[x].b+=e.uncompressedSize;const d=e.filename.split('/').slice(0,-1).slice(0,3).join('/')||'/';(byDir[d]=byDir[d]||{n:0,b:0});byDir[d].n++;byDir[d].b+=e.uncompressedSize}
+  say('\nBy type:');Object.entries(byExt).sort((a,b)=>b[1].b-a[1].b).forEach(([k,v])=>say(' .'+k,v.n,'files',MB(v.b),'MB'));
+  say('\nBy folder (first 3 levels):');Object.entries(byDir).slice(0,40).forEach(([k,v])=>say(' ',k,v.n,'files',MB(v.b),'MB'));
+  say('\nFirst file names:');files.slice(0,25).forEach(e=>say(' ',e.filename,MB(e.uncompressedSize),'MB'));
+  // peek into small data files, up to 3 per type
+  const seen={};
+  for(const e of files){const x=ext(e.filename);if(!['json','npy','npz','txt','md','csv','yaml','yml','obj','pkl','bvh','trc','mot'].includes(x))continue;if((seen[x]=(seen[x]||0)+1)>3||e.uncompressedSize>40e6)continue;
+    try{
+      if(x==='npy'){const b=await e.getData(new zip.BlobWriter()).then(b=>b.slice(0,400).arrayBuffer());say('\nNPY',e.filename,npyInfo(b),'size',MB(e.uncompressedSize),'MB')}
+      else if(x==='json'){const t=await e.getData(new zip.TextWriter());let d;try{d=JSON.parse(t)}catch{say('\nJSON (unparsed)',e.filename,t.slice(0,400));continue}
+        const sh=o=>Array.isArray(o)?'list['+o.length+'] of '+(o.length?(typeof o[0]==='object'&&o[0]?sh(o[0]):typeof o[0]):''):(o&&typeof o==='object'?'{'+Object.keys(o).slice(0,25).map(k=>k+':'+(Array.isArray(o[k])?'list['+o[k].length+']':typeof o[k]==='object'?'obj':typeof o[k])).join(', ')+'}':typeof o);
+        say('\nJSON',e.filename,sh(d),'size',MB(e.uncompressedSize),'MB')}
+      else if(['txt','md','csv','yaml','yml','bvh','trc','mot','obj'].includes(x)){const t=await e.getData(new zip.TextWriter());say('\nTEXT',e.filename,'|',t.slice(0,500).replace(/\n/g,' | '))}
+      else say('\n'+x.toUpperCase(),e.filename,'size',MB(e.uncompressedSize),'MB (not opened)');
+    }catch(err){say('\ncould not read',e.filename,err.message)}}
+  // smallest video: size, frame size, duration
+  const vids=files.filter(e=>['mp4','mov','avi','mkv','webm'].includes(ext(e.filename))).sort((a,b)=>a.uncompressedSize-b.uncompressedSize);
+  say('\nvideos',vids.length);
+  vids.slice(0,6).forEach(e=>say(' ',e.filename,MB(e.uncompressedSize),'MB'));
+  if(vids[0]&&vids[0].uncompressedSize<80e6&&ext(vids[0].filename)!=='avi'){
+    try{const blob=await vids[0].getData(new zip.BlobWriter()),u=URL.createObjectURL(blob),v=document.createElement('video');v.muted=true;v.src=u;
+      await new Promise((ok,no)=>{v.onloadedmetadata=ok;v.onerror=()=>no(new Error('browser cannot play this video'));setTimeout(()=>no(new Error('timeout')),15000)});
+      say('smallest video',vids[0].filename,v.videoWidth+'x'+v.videoHeight,v.duration.toFixed(1)+' s')}catch(err){say('video check failed:',err.message)}}
+  await rd.close(); $('s').textContent='Done. Copy or share the report and paste it into the chat.';$('copy').hidden=false;$('share').hidden=!navigator.share;
+}
+$('f').onchange=e=>{if(e.target.files[0])run(e.target.files[0])};
+$('copy').onclick=async()=>{try{await navigator.clipboard.writeText(rep.join('\n'));$('s').textContent='Copied.'}catch{$('s').textContent='Could not copy: select the text below and copy it.'}};
+$('share').onclick=()=>navigator.share({title:'SPD report',text:rep.join('\n')}).catch(()=>{});
+</script></body></html>
